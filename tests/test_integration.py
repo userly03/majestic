@@ -1,7 +1,7 @@
 """
 Tests de integración: corren contra una instancia real de DataHub, no
 contra mocks. Cierran la brecha que dejan los tests unitarios (100% mocks)
-entre "pasa en CI" y "funciona de verdad" — ver PROPOSAL.md, sección 2.
+entre "pasa en CI" y "funciona de verdad" — ver docs/PROPOSAL.md, sección 2.
 
 Se saltan automáticamente a menos que se opte explícitamente por
 correrlos, para que un `pytest` local sin DataHub arriba siga siendo
@@ -82,7 +82,7 @@ def test_write_then_read_diagnosis_round_trips(live_client):
 
 
 def test_find_previous_diagnosis_locates_itself(live_client):
-    """Valida en runtime el riesgo #1 de PROPOSAL.md: ¿funciona el filtro
+    """Valida en runtime el riesgo #1 de docs/PROPOSAL.md: ¿funciona el filtro
     de búsqueda (Plan A), o hace falta el fallback de texto libre (Plan B)?"""
     writer = DiagnosisWriter(live_client)
     found = writer.find_previous_diagnosis(

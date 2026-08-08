@@ -183,17 +183,32 @@ flowchart TD
 
 **Criterio de salida:** alguien que nunca vio el proyecto puede correr `main.py doctor && main.py diagnose <urn>` y entender el output sin que nadie le explique nada al lado.
 
+### Ronda 4 — Validación en vivo contra DataHub real (2026-08-08)
+
+Hasta esta ronda, todo lo anterior estaba verificado por introspección del SDK y tests con mocks, pero **nunca se había corrido, de punta a punta, contra una instancia real de DataHub** — el propio riesgo #1 de la sección 2. Esta ronda lo cerró.
+
+**Qué se corrió, en orden:** `datahub docker quickstart` → `main.py doctor` (3/3 ✅) → `scripts/seed_demo_data.py` → `main.py diagnose --explain --write` → `main.py impact` → una segunda entidad (H→G→F) para forzar el reuso de memoria.
+
+**Resultado:** los 6 ítems del checklist de la sección 6 pasaron. Dos hallazgos reales en el camino, ninguno hipotético:
+
+1. **Bug de UI de DataHub (no nuestro, pero lo disparaba nuestro texto).** La ficha de cualquier dataset con un diagnóstico persistido, y cualquier búsqueda/listado que lo incluyera, tiraba "Algo salió mal" — un `IllegalArgumentException: No enum constant ...FabricType.$UNKNOWN` en el resolver GraphQL de DataHub al intentar auto-vincular como entidad cualquier valor de structured property que *contenga* algo con forma de URN. El `reason` que arma `RootCauseDiagnoser` siempre embebe el URN de la causa raíz en la oración, así que cualquier diagnóstico real lo activaba — esto habría roto la demo en vivo si un jurado hubiera hecho clic en el dataset diagnosticado. Corregido en `src/memory/writer.py::_sanitize_urn_lookalikes`: inserta un espacio de ancho cero dentro de `"urn:li:"` antes de persistir el valor — invisible al leerlo, rompe la detección de la UI. Confirmado antes/después contra la API real de GMS (`errors` en la respuesta GraphQL desaparece).
+2. **Bug real en `scripts/generate_example_outputs.py`** (no en el pipeline de producción): `_seed_second_matching_entity` emitía el aspecto `globalTags` sobre una entidad `tag` — inválido, DataHub responde 422. El `FakeDataHub` de ese mismo script no valida compatibilidad aspecto/entidad, así que nunca lo hubiera atrapado; solo apareció al sembrar la segunda entidad contra DataHub real. Corregido usando `TagPropertiesClass`, igual que `seed_demo_data.py` ya hacía correctamente.
+
+**Nota de entorno (no es un hallazgo del código, es del entorno de validación):** el sandbox donde se corrió esta ronda tiene I/O inusualmente lento para el bootstrap de MySQL/OpenSearch (el primer `datahub docker quickstart` tardó ~1h en vez de los ~5-10 min típicos) — irrelevante para quien corra esto en una máquina normal, pero documentado acá por si se repite el intento en un entorno similar.
+
+`examples/*.json` y `examples/explain_output.txt` ya reflejan estos outputs reales (no el `FakeDataHub`). Ver `examples/README.md`.
+
 ---
 
 ## 6. Checklist antes del video
 
-**Debe funcionar sí o sí:**
-- [ ] `datahub docker quickstart` + datapack sembrado (Ronda 1, ítem 3.1) corriendo y estable.
-- [ ] `main.py doctor` (o los 3 pasos manuales, si no llegó el comando nuevo) en verde.
-- [ ] `main.py diagnose "<urn>"` sobre el dataset sembrado devuelve `causal_chain` no vacía y `root_cause_urn` no nulo.
-- [ ] `main.py diagnose "<urn>" --write` persiste sin error.
-- [ ] Una segunda entidad con la misma firma estructural dispara "♻️ ya existe un diagnóstico".
-- [ ] `main.py impact "<urn>"` sobre un nodo con al menos un dashboard downstream muestra `affected_dashboards > 0`.
+**Debe funcionar sí o sí:** — los 6 confirmados en vivo el 2026-08-08 (Ronda 4). Al re-levantar DataHub para grabar, re-confirmar que nada se rompió entre medio (nueva versión del SDK, etc.) antes de prender la cámara.
+- [x] `datahub docker quickstart` + datapack sembrado (Ronda 1, ítem 3.1) corriendo y estable.
+- [x] `main.py doctor` en verde (3/3).
+- [x] `main.py diagnose "<urn>"` sobre el dataset sembrado devuelve `causal_chain` no vacía y `root_cause_urn` no nulo.
+- [x] `main.py diagnose "<urn>" --write` persiste sin error.
+- [x] Una segunda entidad con la misma firma estructural dispara "♻️ ya existe un diagnóstico".
+- [x] `main.py impact "<urn>"` sobre un nodo con al menos un dashboard downstream muestra `affected_dashboards > 0`.
 
 **Debe mostrarse en pantalla:**
 - Terminal corriendo `diagnose` con output limpio (Ronda 3, `--quiet`).

@@ -56,16 +56,17 @@ Decisión deliberada, no falta de tiempo:
 
 ### Estado de validación técnica
 
-> Actualizado a lo largo de 3 rondas de blindaje — ver `PROPOSAL.md` para el detalle completo de cada ronda.
+> Actualizado a lo largo de 4 rondas de blindaje (la última, validación en vivo contra DataHub real) — ver `docs/PROPOSAL.md` para el detalle completo de cada ronda.
 
 - [x] `datahub properties upsert` con la definición de memoria episódica — YAML en `config/agent_memory_property.yaml`. **Se encontró y corrigió un bug real acá**: la primera versión usaba nombres de campo camelCase (`displayName`, `entityTypes`) que el modelo pydantic real del SDK rechaza (espera snake_case) — solo se detectó instalando el SDK y parseando el YAML de verdad, no leyendo la doc. `python3 main.py doctor` ahora lo registra automáticamente si falta.
 - [x] Write-back de `structuredProperties` vía SDK Python — `src/memory/writer.py`, `DatasetPatchBuilder.add_structured_property` + `DataHubGraph.emit_mcps`. Cubierto por tests unitarios y por `tests/test_integration.py` (opt-in, contra una instancia real).
 - [x] Lectura de vuelta de la memoria escrita — `DiagnosisWriter.read_diagnosis`, mismo mecanismo de validación.
 - [x] Traversal de lineage upstream/downstream, incluida paginación multi-página — `src/graph/traversal.py`, BFS sobre `DataHubGraph.scroll_lineage`. Cubierto con tests unitarios (incluido el camino de paginación, que al principio no tenía ningún test).
-- [x] Búsqueda de diagnósticos previos por firma de patrón entre entidades (`find_previous_diagnosis`) — el nombre exacto del campo de búsqueda para structured properties en Elasticsearch sigue sin confirmar contra una instancia real, pero ya no es un punto de falla único: si el filtro estructurado (Plan A) falla o no encuentra nada, cae a una búsqueda de texto libre (Plan B). `tests/test_integration.py` valida en runtime cuál de los dos hizo falta.
+- [x] Búsqueda de diagnósticos previos por firma de patrón entre entidades (`find_previous_diagnosis`) — **confirmado contra una instancia real** (2026-08-08): Plan A (filtro estructurado) encontró el diagnóstico previo correctamente en la corrida final; en una corrida anterior, mientras la indexación de Elasticsearch todavía no había alcanzado a ese documento, cayó automáticamente a Plan B (texto libre) sin romper el flujo — exactamente el comportamiento que este plan B fue diseñado para cubrir.
 - [x] Conexión resiliente a que DataHub tarde en levantar o esté momentáneamente caído — reintentos con backoff (`tenacity`). **Otro hallazgo real**: el retry propio se multiplicaba con el retry interno del SDK, llevando el peor caso a ~90s antes de reportar error; medido y corregido a ~15s. Ver "Notas técnicas" en `README.md`.
+- [x] **Pipeline completo corrido de punta a punta contra una instancia real de DataHub** (2026-08-08): `doctor` → `seed_demo_data.py` → `diagnose --explain --write` → `impact` → reuso de memoria en una segunda entidad. Encontró y corrigió, en el camino, un bug real de UI (ver `docs/PROPOSAL.md`, Ronda 4) — el mismo tipo de hallazgo que las rondas anteriores ya habían anticipado que solo aparece corriendo contra algo real.
 
-**Los nombres de método y clases usados (`DataHubGraph.scroll_lineage`, `LineageDirection`, `DatasetPatchBuilder`, `StructuredPropertiesClass`, `StructuredProperties.from_yaml`) fueron confirmados instalando `acryl-datahub==1.7.0` en un entorno aislado e inspeccionando el SDK directamente**, no asumidos de la documentación — exactamente la precaución que esta sección pedía tomar, y que en dos casos concretos (el YAML y el retry) encontró bugs reales que la documentación no hubiera revelado.
+**Los nombres de método y clases usados (`DataHubGraph.scroll_lineage`, `LineageDirection`, `DatasetPatchBuilder`, `StructuredPropertiesClass`, `StructuredProperties.from_yaml`) fueron confirmados instalando `acryl-datahub==1.7.0` en un entorno aislado e inspeccionando el SDK directamente**, no asumidos de la documentación — exactamente la precaución que esta sección pedía tomar, y que en varios casos concretos (el YAML, el retry, y el bug de UI de la Ronda 4) encontró bugs reales que la documentación no hubiera revelado.
 
 ## Estructura del repo
 
@@ -114,8 +115,9 @@ Apache 2.0 — ver `LICENSE`. (Requisito del hackathon: debe ser visible en la s
 ## Checklist de submission (Devpost)
 
 - [ ] URL del proyecto (repo con instrucciones claras — no requiere deploy)
-- [ ] Repo público, Apache 2.0 visible en "About"
-- [ ] Descripción del proyecto
-- [ ] Video demo <3 min, YouTube/Vimeo público
-- [ ] `examples/` con outputs reales (diagnóstico generado, captura de la structured property en la UI de DataHub) — hoy `examples/` tiene outputs generados corriendo el código real del agente contra un grafo falso en memoria (`scripts/generate_example_outputs.py`), explícitamente marcados como no-reales en `examples/README.md`. Falta reemplazarlos por outputs de una instancia real + la captura de pantalla antes de tildar esto.
+- [ ] Repo público en GitHub, con licencia Apache 2.0 visible en "About"
+- [x] Descripción del proyecto — este mismo documento + `README.md`
+- [ ] Video demo <3 min, YouTube/Vimeo público — guion listo y ensayado en `docs/DEMO_SCRIPT.md`, falta grabar
+- [x] `examples/` con outputs reales — regenerado el 2026-08-08 corriendo el pipeline completo contra una instancia real de DataHub (no el `FakeDataHub`). Ver `examples/README.md` para el detalle y los comandos exactos usados.
+- [ ] `examples/structured_property_screenshot.png` — captura manual de la UI de DataHub (única pieza que ningún script puede generar)
 - [ ] Opcional: opt-in a la encuesta para el Bonus Prize ($50 x 10)

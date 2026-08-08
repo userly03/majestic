@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 #
 # IMPORTANTE — esto es un ranking razonado, no una calibración estadística:
 # no existe (todavía) un dataset de incidentes reales resueltos contra el
-# cual ajustar estos números, y PROPOSAL.md es explícito en no fabricar una
+# cual ajustar estos números, y docs/PROPOSAL.md es explícito en no fabricar una
 # precisión que no se midió (mismo criterio que el proyecto ya aplica para
 # no inventar "80% de probabilidad de fallo en 48h" sin datos históricos).
 # Lo que sí se puede defender es el ORDEN relativo, por especificidad y

@@ -33,13 +33,16 @@ Majestic/
 │   └── impact/
 │       └── simulator.py           # ImpactSimulator — impacto downstream de un cambio
 ├── scripts/
+│   ├── spike_test.py              # valida solo la conexión a DataHub
 │   ├── seed_demo_data.py          # siembra un grafo sintético con anomalía garantizada para la demo
 │   ├── generate_example_outputs.py  # regenera examples/ corriendo el agente real (no una instancia real de DataHub)
 │   └── spike_writeback_test.py   # valida el ciclo completo de memoria, con el JSON exacto que se envía
-├── spike_test.py                 # valida solo la conexión a DataHub
 ├── docker-compose.yml            # un comando para correr todo en contenedor
 ├── tests/                        # 46 unitarios (mocks) + 4 de integración (opt-in, DataHub real)
-└── examples/                     # outputs de ejemplo — ver examples/README.md sobre qué tan "reales" son hoy
+├── examples/                     # outputs de ejemplo — ver examples/README.md sobre qué tan "reales" son hoy
+└── docs/
+    ├── PROPOSAL.md                # análisis técnico y bitácora de las 4 rondas de blindaje
+    └── DEMO_SCRIPT.md             # guion cronometrado (≤3:00) para grabar el video de submission
 ```
 
 - `src/graph`: cliente y traversal sobre DataHub (GMS).
@@ -78,7 +81,7 @@ python3 main.py doctor
 
 Un solo comando que reemplaza 3 pasos manuales: revisa la conexión a DataHub, registra `config/agent_memory_property.yaml` si todavía no está aplicado (equivalente a `datahub properties upsert -f ...`), y corre un ciclo rápido de escritura/lectura para confirmar permisos. Termina con un resumen ✅/❌ por paso.
 
-(La versión larga, paso a paso, sigue disponible: `python3 spike_test.py` para solo probar conexión, y `python3 scripts/spike_writeback_test.py` para ver el JSON exacto del ciclo de memoria — útil para debuggear si `doctor` da ❌ en el paso 3.)
+(La versión larga, paso a paso, sigue disponible: `python3 scripts/spike_test.py` para solo probar conexión, y `python3 scripts/spike_writeback_test.py` para ver el JSON exacto del ciclo de memoria — útil para debuggear si `doctor` da ❌ en el paso 3.)
 
 ### 5. Sembrar datos de demo (recomendado)
 
@@ -117,7 +120,7 @@ python3 main.py --quiet diagnose "<urn>" --explain
 Con `docker compose` (recomendado — un solo comando, ver `docker-compose.yml`):
 
 ```bash
-docker compose up                                                  # corre spike_test.py, valida conexión
+docker compose up                                                  # corre scripts/spike_test.py, valida conexión
 docker compose run --rm majestic python main.py doctor
 docker compose run --rm majestic python main.py diagnose "<urn>" --explain
 docker compose run --rm majestic python scripts/seed_demo_data.py
@@ -148,17 +151,16 @@ Los unitarios corren automáticamente en cada push vía `.github/workflows/ci.ym
 - [x] Traversal de lineage upstream/downstream, incluida paginación multi-página, vía `DataHubGraph.scroll_lineage` — verificado por introspección directa del SDK instalado (`acryl-datahub==1.7.0`) y por tests unitarios.
 - [x] Write-back de `structuredProperties` vía `DatasetPatchBuilder.add_structured_property` + `emit_mcps` — cubierto por tests unitarios y por `tests/test_integration.py` (opt-in, contra una instancia real).
 - [x] Lectura de vuelta de la memoria escrita — `DiagnosisWriter.read_diagnosis`, mismo mecanismo de validación.
-- [x] Búsqueda de diagnósticos previos por firma de patrón (`find_previous_diagnosis`) — el nombre exacto del campo de búsqueda para structured properties en Elasticsearch sigue sin confirmar contra una instancia real, pero ahora tiene un plan B de texto libre si el filtro estructurado falla o no encuentra nada (ver "Notas técnicas" abajo).
+- [x] Búsqueda de diagnósticos previos por firma de patrón (`find_previous_diagnosis`) — confirmado contra una instancia real: Plan A (filtro estructurado) encontró el diagnóstico previo correctamente; el plan B (texto libre) también se ejercitó en runtime, en una corrida donde la indexación de Elasticsearch todavía no había alcanzado al documento, y funcionó como respaldo sin romper el flujo.
 - [x] `python3 main.py doctor` — conexión + registro de properties + ciclo write/read en un solo comando, con timeout y retry acotados (~15s peor caso si DataHub no responde).
-- [ ] Todo lo anterior, corrido contra una instancia real de DataHub en esta sesión — sigue pendiente (`MAJESTIC_RUN_INTEGRATION_TESTS=1 pytest -m integration`, o `main.py doctor` a mano). Es el primer paso antes de grabar el video.
+- [x] **Pipeline completo corrido de punta a punta contra una instancia real de DataHub** (2026-08-08): `doctor` → `seed_demo_data.py` → `diagnose --explain --write` → `impact` → reuso de memoria en una segunda entidad. Encontró y corrigió un bug real en el camino (ver primera nota técnica abajo) — exactamente el tipo de hallazgo que ningún test contra mocks puede atrapar.
 
 Ver la sección "Estado de validación técnica" en [`proyecto-majestic.md`](proyecto-majestic.md) para el detalle completo y el razonamiento detrás de cada decisión.
 
-## Notas técnicas (riesgos conocidos)
+## Notas técnicas (riesgos conocidos y hallazgos reales)
 
-Transparencia sobre lo que todavía no está probado contra una instancia real, para que nadie lo descubra en vivo durante la demo:
-
-- **`DiagnosisWriter.find_previous_diagnosis` sigue siendo el punto de mayor incertidumbre del proyecto, aunque ya tiene un plan B.** Busca entidades con la misma firma de patrón con un filtro estructurado (`get_urns_by_filter` con `extraFilters` sobre `structuredProperties.<qualifiedName>` — Plan A). El *método* del SDK está confirmado por introspección directa contra `acryl-datahub==1.7.0`, pero **el nombre exacto del campo indexado en Elasticsearch para structured properties custom depende de cómo DataHub construye el mapping de búsqueda**, y eso solo se confirma corriéndolo contra una instancia real. Si Plan A lanza una excepción, o "funciona" pero no devuelve nada, `_search_by_pattern_signature` cae automáticamente a una búsqueda de texto libre (`query=`, Plan B) que no depende de ese nombre de campo — y cualquier resultado de Plan B se re-valida contra la firma exacta antes de reutilizarlo, para no dar por buena una coincidencia parcial de texto libre. Ninguno de los dos planes puede tirar abajo `diagnose`: si ambos fallan, `find_previous_diagnosis` devuelve `None` (equivalente a "no se encontró memoria previa"), nunca una excepción. **Igual se valida en runtime con `scripts/spike_writeback_test.py` antes de la demo** — Plan B reduce el riesgo de que la demo se vea rota, pero no reemplaza confirmar que Plan A funciona de verdad.
+- **Bug real de la UI de DataHub, encontrado validando en vivo y neutralizado en nuestro código.** La UI de DataHub intenta resolver como referencia a otra entidad (`valueEntities`) cualquier valor de structured property que *contenga* algo con forma de URN (`urn:li:...(...)`) — y ese resolver tiene un bug propio de DataHub que rompe la página completa (`IllegalArgumentException: No enum constant ...FabricType.$UNKNOWN`). El `reason` que arma `RootCauseDiagnoser` siempre embebe el URN de la entidad causal en la oración, así que cualquier diagnóstico real lo disparaba. No es un bug nuestro, pero es nuestro texto el que lo activaba — `src/memory/writer.py::_sanitize_urn_lookalikes` lo neutraliza insertando un espacio de ancho cero dentro de `"urn:li:"` antes de persistir el valor (invisible al leerlo, rompe la detección de la UI). Confirmado antes/después contra la API real de GMS.
+- **`DiagnosisWriter.find_previous_diagnosis` tiene un plan B, y ambos caminos ya se ejercitaron contra una instancia real.** Busca entidades con la misma firma de patrón con un filtro estructurado (`get_urns_by_filter` con `extraFilters` sobre `structuredProperties.<qualifiedName>` — Plan A). Si Plan A lanza una excepción, o "funciona" pero no devuelve nada, `_search_by_pattern_signature` cae automáticamente a una búsqueda de texto libre (`query=`, Plan B) que no depende de ese nombre de campo — y cualquier resultado de Plan B se re-valida contra la firma exacta antes de reutilizarlo, para no dar por buena una coincidencia parcial de texto libre. Ninguno de los dos planes puede tirar abajo `diagnose`: si ambos fallan, `find_previous_diagnosis` devuelve `None` (equivalente a "no se encontró memoria previa"), nunca una excepción.
 - **Reintentos de conexión, con un hallazgo real detrás.** `DataHubClient` reintenta la conexión inicial hasta 3 veces con backoff exponencial (`tenacity`) antes de darse por vencido. Pero el SDK *ya* reintenta cada request HTTP internamente (`DatahubClientConfig.retry_max_times`, default 4, con backoff propio) — y ese default retría incluso "connection refused", no solo 5xx. Medido contra un GMS caído: un solo `test_connection()` con el default tardaba **28s** en fallar; con nuestro retry de 3 intentos encima, hasta **~90s** antes de reportar "no se pudo conectar" — inaceptable en vivo. Bajamos `retry_max_times` a 2 (`config/settings.py`), lo que baja el peor caso medido a **~15s**. Este hallazgo salió de escribir `tests/test_integration.py` y correrlo de verdad contra un endpoint inexistente, no de leer el código — es exactamente el tipo de bug que un test 100% mockeado no puede atrapar.
 - **Tests**: 46 unitarios (100% mocks, corren siempre) + 4 de integración (`tests/test_integration.py`, marcados `@pytest.mark.integration`, se saltan por defecto — requieren `MAJESTIC_RUN_INTEGRATION_TESTS=1` y una instancia real). `.github/workflows/ci.yml` corre `pytest -m "not integration"` y valida que la imagen Docker construye en cada push. Los de integración cubren, contra DataHub real: el ciclo write/read de memoria, que `find_previous_diagnosis` encuentra lo que se acaba de escribir (valida en runtime si Plan A funciona o si hizo falta Plan B), y que diagnosticar el grafo sembrado por `seed_demo_data.py` encuentra la causa raíz en B.
 - **`_EVIDENCE_WEIGHTS` (en `src/core/diagnoser.py`) es un ranking razonado, no una calibración estadística — a propósito.** No existe un dataset de incidentes reales resueltos contra el cual ajustar `incident_tag=0.9 > schema_change=0.7 > stale_data=0.5 > unowned=0.3`. Lo defendible es el *orden*: especificidad y fuerza causal de la señal (una etiqueta puesta por un humano dice más que la mera ausencia de owner). Los valores absolutos son arbitrarios dentro de ese orden. Si un jurado pregunta "¿por qué 0.75 y no 0.9?", la respuesta honesta es esa — no fingir una precisión que no se midió, mismo criterio que el proyecto ya aplica para no inventar "80% de probabilidad de fallo en 48h" sin datos históricos (ver `proyecto-majestic.md`).

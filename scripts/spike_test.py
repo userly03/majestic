@@ -4,6 +4,10 @@ Este es el primer script que corremos para verificar el setup.
 """
 
 import logging
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from src.graph.client import DataHubClient
 

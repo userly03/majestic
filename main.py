@@ -146,7 +146,7 @@ def _doctor_check_write_read_cycle(client: DataHubClient) -> bool:
 
 def cmd_doctor() -> None:
     """Corre en un solo comando lo que antes eran 3 pasos manuales
-    (spike_test.py + datahub properties upsert + spike_writeback_test.py)."""
+    (scripts/spike_test.py + datahub properties upsert + scripts/spike_writeback_test.py)."""
     print("🩺 Majestic doctor — validando el setup antes de la demo\n")
     results: dict[str, bool] = {}
 

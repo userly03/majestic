@@ -1,5 +1,5 @@
 """
-Síntesis narrativa opcional del diagnóstico (PROPOSAL.md, sección 3.4).
+Síntesis narrativa opcional del diagnóstico (docs/PROPOSAL.md, sección 3.4).
 
 Toma un `report` ya generado por MajesticAgent.diagnose() — evidencia ya
 extraída y verificada contra el grafo — y lo redacta en lenguaje natural
@@ -12,7 +12,7 @@ solo tendría el trabajo de fraseo, no de razonamiento sobre el grafo.
 Estado actual: `explain()` es una plantilla determinística, sin llamar a
 ningún proveedor externo (sin API key, sin costo, sin nuevo punto de falla
 en la demo). El equipo decidió no elegir proveedor todavía — ver
-PROPOSAL.md 3.4. Cuando se elija uno (Anthropic, OpenAI, etc.), la forma de
+docs/PROPOSAL.md 3.4. Cuando se elija uno (Anthropic, OpenAI, etc.), la forma de
 enchufarlo es reemplazar el cuerpo de `explain()` por una llamada real que
 reciba el mismo `report` y devuelva un string; la firma no cambia, así que
 nada en agent.py/main.py necesita tocarse.

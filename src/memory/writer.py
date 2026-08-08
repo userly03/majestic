@@ -25,6 +25,29 @@ _PROP_CONFIDENCE = "majestic.confidenceScore"
 _PROP_DIAGNOSED_AT = "majestic.diagnosedAt"
 
 
+def _sanitize_urn_lookalikes(text: str) -> str:
+    """
+    Neutraliza subcadenas con forma de URN de DataHub (`urn:li:...(...)`)
+    dentro de un texto libre, insertando un espacio de ancho cero después
+    de "urn:" — invisible al leerlo, pero rompe la detección de URN de la
+    UI de DataHub.
+
+    Por qué existe esto: `report["reason"]` (ver diagnoser.py::_explain)
+    siempre embebe el URN completo de la entidad causal en la oración
+    ("urn:li:dataset:(...) (hop 1): ..."). La UI de DataHub intenta
+    resolver cualquier valor de structured property que *contenga* algo
+    con forma de URN como referencia a otra entidad (`valueEntities`), y
+    ese resolver tiene un bug real (confirmado en vivo: lanza
+    `IllegalArgumentException: No enum constant ...FabricType.$UNKNOWN`)
+    que rompe la página completa (search, browse y la ficha del dataset)
+    en cualquier entidad que tenga esta property. No es un bug nuestro,
+    pero es nuestro texto el que lo dispara — así que lo evitamos acá,
+    en el único lugar donde este texto se persiste en DataHub (el
+    `report["reason"]` que se devuelve por CLI/JSON no se toca).
+    """
+    return text.replace("urn:li:", "urn:​li:")
+
+
 class DiagnosisWriter:
     """Escribe y recupera diagnósticos persistidos como memoria episódica en DataHub."""
 
@@ -60,7 +83,9 @@ class DiagnosisWriter:
                 .add_structured_property(
                     _PROP_PATTERN_SIGNATURE, report["pattern_signature"]
                 )
-                .add_structured_property(_PROP_DIAGNOSIS, report["reason"])
+                .add_structured_property(
+                    _PROP_DIAGNOSIS, _sanitize_urn_lookalikes(report["reason"])
+                )
                 .add_structured_property(_PROP_CONFIDENCE, float(report["confidence"]))
                 .add_structured_property(
                     _PROP_DIAGNOSED_AT, datetime.now(timezone.utc).isoformat()
@@ -68,7 +93,7 @@ class DiagnosisWriter:
             )
             if business_context is not None:
                 patch = patch.add_structured_property(
-                    _PROP_BUSINESS_CONTEXT, business_context
+                    _PROP_BUSINESS_CONTEXT, _sanitize_urn_lookalikes(business_context)
                 )
 
             self.client.graph.emit_mcps(patch.build())

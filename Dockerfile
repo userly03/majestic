@@ -7,4 +7,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-CMD ["python", "spike_test.py"]
+CMD ["python", "scripts/spike_test.py"]

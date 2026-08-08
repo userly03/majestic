@@ -9,7 +9,7 @@
 #   2. cp .env.example .env               (y editarlo si hace falta)
 #
 # Uso:
-#   docker compose up                                    # corre spike_test.py (valida conexión)
+#   docker compose up                                    # corre scripts/spike_test.py (valida conexión)
 #   docker compose run --rm majestic python main.py doctor
 #   docker compose run --rm majestic python main.py diagnose "<urn>" --explain
 #   docker compose run --rm majestic python scripts/seed_demo_data.py

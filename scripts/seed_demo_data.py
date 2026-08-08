@@ -1,6 +1,6 @@
 """
 Sembrado de datos sintéticos para la demo de Majestic (Ronda 1, ítem 3.1
-de PROPOSAL.md).
+de docs/PROPOSAL.md).
 
 Crea un mini-grafo de lineage garantizado: A → B → C, con una anomalía
 real en B (sin owner + tag de incidente) para que diagnosticar C
