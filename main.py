@@ -53,6 +53,15 @@ def cmd_diagnose(
     print("\n🩺 Diagnóstico:")
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
+    ranked = report.get("ranked_candidates") or []
+    if len(ranked) > 1:
+        print(f"\n🔀 {len(ranked)} candidatos a causa raíz, rankeados (mecanismo lag-aware):")
+        for i, candidate in enumerate(ranked, start=1):
+            print(
+                f"   {i}. {candidate['urn']} (hop {candidate['hop']}, "
+                f"{candidate['evidence_type']}, score {candidate['adjusted_weight']:.2f})"
+            )
+
     if explain_flag:
         print("\n📝 Explicación:")
         print(explain(report))

@@ -71,6 +71,23 @@ EVIDENCE_WEIGHT_UNOWNED = float(os.getenv("MAJESTIC_EVIDENCE_WEIGHT_UNOWNED", "0
 # se tratan como evidencia directa de incidente conocido.
 INCIDENT_TAG_KEYWORDS = ["error", "broken", "incident", "deprecated", "anomaly"]
 
+# --- Mecanismo "lag-aware" (ver docs/LAG_AWARE_DIAGNOSIS.md) ---
+# Vida media, en horas, del decaimiento exponencial que se aplica al peso
+# de evidencia con timestamp real (schema_change, stale_data): evidencia
+# más vieja pesa menos al elegir causa raíz, nunca llega a cero. No aplica
+# a incident_tag/unowned (sin timestamp confiable disponible).
+LAG_DECAY_HALFLIFE_HOURS = float(os.getenv("MAJESTIC_LAG_DECAY_HALFLIFE_HOURS", "48"))
+
+# Si dos hops consecutivos de la cadena causal tienen el mismo evidence_type,
+# el hop más cercano al target se multiplica por este factor — es más
+# probable que esté heredando el problema del hop más lejano que aportando
+# una señal independiente.
+UPSTREAM_INHERITANCE_DISCOUNT = float(os.getenv("MAJESTIC_UPSTREAM_INHERITANCE_DISCOUNT", "0.5"))
+
+# Cuántos candidatos a causa raíz devolver rankeados (ranked_candidates),
+# no solo el primero.
+RANKED_CANDIDATES_TOP_K = int(os.getenv("MAJESTIC_RANKED_CANDIDATES_TOP_K", "3"))
+
 # --- check-change (RiskAssessor) ---
 # risk_score >= este umbral => "check-change" bloquea (exit 1) en vez de
 # aprobar. Heurística, igual que _EVIDENCE_WEIGHTS en diagnoser.py: el

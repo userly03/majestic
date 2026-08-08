@@ -30,8 +30,11 @@ from config.settings import (
     EVIDENCE_WEIGHT_UNOWNED,
     FRESHNESS_THRESHOLD_HOURS,
     INCIDENT_TAG_KEYWORDS,
+    LAG_DECAY_HALFLIFE_HOURS,
     MAX_CAUSAL_LINKS,
     MAX_PARALLEL_REQUESTS,
+    RANKED_CANDIDATES_TOP_K,
+    UPSTREAM_INHERITANCE_DISCOUNT,
 )
 from src.graph.client import DataHubClient
 
@@ -123,15 +126,22 @@ class RootCauseDiagnoser:
                 "reason": "No se encontró evidencia concreta en el grafo upstream.",
                 "causal_chain": [],
                 "confidence": 0.0,
+                "ranked_candidates": [],
             }
 
-        root_link = max(causal_chain, key=lambda link: (link["hop"], link["weight"]))
+        self._apply_adjusted_weights(causal_chain)
+
+        root_link = max(causal_chain, key=lambda link: (link["hop"], link["adjusted_weight"]))
+        ranked_candidates = sorted(
+            causal_chain, key=lambda link: (link["hop"], link["adjusted_weight"]), reverse=True
+        )[:RANKED_CANDIDATES_TOP_K]
 
         return {
             "root_cause_urn": root_link["urn"],
             "reason": self._explain(root_link),
             "causal_chain": causal_chain,
             "confidence": self._confidence(causal_chain),
+            "ranked_candidates": ranked_candidates,
         }
 
     def _collect_evidence_parallel(self, urns: List[str]) -> List[Optional[Dict[str, Any]]]:
@@ -199,6 +209,7 @@ class RootCauseDiagnoser:
                 "evidence_type": "schema_change",
                 "evidence": f"schema modificado hace {age_hours:.1f}h (umbral {FRESHNESS_THRESHOLD_HOURS}h)",
                 "weight": _EVIDENCE_WEIGHTS["schema_change"],
+                "age_hours": age_hours,
             }
         return None
 
@@ -212,6 +223,7 @@ class RootCauseDiagnoser:
                 "evidence_type": "stale_data",
                 "evidence": f"sin actualizar hace {age_hours:.1f}h (umbral {FRESHNESS_THRESHOLD_HOURS}h)",
                 "weight": _EVIDENCE_WEIGHTS["stale_data"],
+                "age_hours": age_hours,
             }
         return None
 
@@ -237,12 +249,58 @@ class RootCauseDiagnoser:
         return f"{link['urn']} (hop {link['hop']}): {link['evidence']}"
 
     @staticmethod
+    def _recency_decay(age_hours: Optional[float]) -> float:
+        """
+        Decaimiento exponencial por antigüedad — ver docs/LAG_AWARE_DIAGNOSIS.md.
+        Evidencia con `age_hours=0` (recién ocurrida) no se descuenta; a
+        medida que pasa el tiempo el peso decae hacia 0 sin llegar nunca a
+        cero exacto. Sin `age_hours` (incident_tag, unowned: sin timestamp
+        confiable disponible) no hay decaimiento — se devuelve 1.0.
+        """
+        if age_hours is None:
+            return 1.0
+        return 0.5 ** (max(age_hours, 0.0) / LAG_DECAY_HALFLIFE_HOURS)
+
+    @staticmethod
+    def _apply_adjusted_weights(causal_chain: List[Dict[str, Any]]) -> None:
+        """
+        Calcula `adjusted_weight` para cada eslabón de la cadena, mutando
+        `causal_chain` in-place. Dos ajustes sobre el `weight` base (que
+        NUNCA se modifica, para que siga siendo el peso "de catálogo" del
+        tipo de evidencia):
+
+        1. Decaimiento por antigüedad (`_recency_decay`), solo para
+           evidencia con `age_hours` disponible.
+        2. Descuento por herencia: si el mismo `evidence_type` aparece en
+           un hop más lejano (más upstream), el hop más cercano al target
+           probablemente está heredando el problema, no aportando una
+           señal independiente — se multiplica por
+           UPSTREAM_INHERITANCE_DISCOUNT.
+
+        Ver docs/LAG_AWARE_DIAGNOSIS.md para el razonamiento completo.
+        """
+        for link in causal_chain:
+            decay = RootCauseDiagnoser._recency_decay(link.get("age_hours"))
+            link["adjusted_weight"] = round(link["weight"] * decay, 4)
+
+        for link in causal_chain:
+            inherited_from_further_upstream = any(
+                other["evidence_type"] == link["evidence_type"] and other["hop"] > link["hop"]
+                for other in causal_chain
+            )
+            if inherited_from_further_upstream:
+                link["adjusted_weight"] = round(
+                    link["adjusted_weight"] * UPSTREAM_INHERITANCE_DISCOUNT, 4
+                )
+
+    @staticmethod
     def _confidence(causal_chain: List[Dict[str, Any]]) -> float:
         """
-        Heurística de confianza: promedio del peso de evidencia de la cadena,
-        con un pequeño bonus por cada eslabón adicional confirmado. No es una
-        probabilidad calibrada — falta validarla contra incidentes reales.
+        Heurística de confianza: promedio del peso AJUSTADO (decaimiento +
+        descuento por herencia) de la cadena, con un pequeño bonus por cada
+        eslabón adicional confirmado. No es una probabilidad calibrada —
+        falta validarla contra incidentes reales.
         """
-        avg_weight = sum(link["weight"] for link in causal_chain) / len(causal_chain)
+        avg_weight = sum(link["adjusted_weight"] for link in causal_chain) / len(causal_chain)
         chain_bonus = min(0.1 * (len(causal_chain) - 1), 0.2)
         return round(min(avg_weight + chain_bonus, 1.0), 2)

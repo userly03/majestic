@@ -50,6 +50,7 @@ class MajesticAgent:
             "reason": diagnosis["reason"],
             "causal_chain": diagnosis["causal_chain"],
             "confidence": diagnosis["confidence"],
+            "ranked_candidates": diagnosis["ranked_candidates"],
             "pattern_signature": self._build_pattern_signature(
                 diagnosis, len(upstream_nodes), len(downstream_nodes)
             ),

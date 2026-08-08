@@ -22,6 +22,10 @@ def test_diagnose_builds_pattern_signature_from_root_cause(connected_client):
             {"urn": "C", "hop": 2, "evidence_type": "stale_data", "evidence": "y", "weight": 0.5},
         ],
         "confidence": 0.4,
+        "ranked_candidates": [
+            {"urn": "C", "hop": 2, "evidence_type": "stale_data", "adjusted_weight": 0.5},
+            {"urn": "B", "hop": 1, "evidence_type": "unowned", "adjusted_weight": 0.3},
+        ],
     }
 
     agent = _agent_with_mocks(connected_client, upstream, downstream, diagnosis)
@@ -30,6 +34,7 @@ def test_diagnose_builds_pattern_signature_from_root_cause(connected_client):
     assert report["upstream_count"] == 2
     assert report["downstream_count"] == 1
     assert report["pattern_signature"] == "stale_data:2:2:1"
+    assert report["ranked_candidates"] == diagnosis["ranked_candidates"]
 
 
 def test_diagnose_signature_when_no_root_cause(connected_client):
@@ -38,6 +43,7 @@ def test_diagnose_signature_when_no_root_cause(connected_client):
         "reason": "sin evidencia",
         "causal_chain": [],
         "confidence": 0.0,
+        "ranked_candidates": [],
     }
 
     agent = _agent_with_mocks(connected_client, [], [], diagnosis)
