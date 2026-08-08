@@ -13,7 +13,8 @@ estar varios saltos upstream del síntoma original.
 
 import logging
 import time as time_module
-from typing import Any, Dict, List, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 from datahub.metadata.schema_classes import (
     DatasetPropertiesClass,
@@ -26,14 +27,40 @@ from config.settings import (
     FRESHNESS_THRESHOLD_HOURS,
     INCIDENT_TAG_KEYWORDS,
     MAX_CAUSAL_LINKS,
+    MAX_PARALLEL_REQUESTS,
 )
 from src.graph.client import DataHubClient
 
 logger = logging.getLogger(__name__)
 
 # Peso relativo de cada tipo de evidencia: a mayor peso, más determinante
-# se considera para señalar la causa raíz. Heurística de arranque, no un
-# valor calibrado contra incidentes reales todavía.
+# se considera para señalar la causa raíz.
+#
+# IMPORTANTE — esto es un ranking razonado, no una calibración estadística:
+# no existe (todavía) un dataset de incidentes reales resueltos contra el
+# cual ajustar estos números, y PROPOSAL.md es explícito en no fabricar una
+# precisión que no se midió (mismo criterio que el proyecto ya aplica para
+# no inventar "80% de probabilidad de fallo en 48h" sin datos históricos).
+# Lo que sí se puede defender es el ORDEN relativo, por especificidad y
+# fuerza causal de la señal:
+#
+#   incident_tag (0.9)   — señal explícita puesta por un humano; es la
+#                          afirmación más directa posible de "esto es la
+#                          causa", aunque el propio agente no la generó.
+#   schema_change (0.7)  — cambio estructural real y con timestamp; fuerte,
+#                          pero circunstancial (coincide en el tiempo, no
+#                          prueba causalidad).
+#   stale_data (0.5)     — ausencia de actualización; puede ser un ETL
+#                          caído, pero también un fin de semana o una
+#                          fuente que legítimamente actualiza poco.
+#                          Señal más débil por más falsos positivos.
+#   unowned (0.3)        — la más débil: no tener owner no rompe un
+#                          pipeline por sí solo, solo dificulta escalar
+#                          cuando algo más ya se rompió.
+#
+# Los valores absolutos (0.9/0.7/0.5/0.3) son arbitrarios dentro de ese
+# orden — ajustarlos requiere datos reales de incidentes, no otra pasada
+# de código. Ver "Notas técnicas" en README.md.
 _EVIDENCE_WEIGHTS = {
     "incident_tag": 0.9,
     "schema_change": 0.7,
@@ -49,6 +76,11 @@ class RootCauseDiagnoser:
         if not client.is_connected:
             raise RuntimeError("DataHubClient no está conectado. Abortando diagnóstico.")
         self.client = client
+        # Cache por instancia de get_aspect: mismo (urn, tipo de aspecto) no
+        # se pide dos veces mientras viva este RootCauseDiagnoser. Sin riesgo
+        # de condición de carrera entre hops paralelos porque el BFS que
+        # arma upstream_nodes ya deduplica URNs (visited set en traversal.py).
+        self._aspect_cache: Dict[Tuple[str, type], Any] = {}
 
     def analyze(self, upstream_nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -66,10 +98,11 @@ class RootCauseDiagnoser:
             if len(causal_chain) >= MAX_CAUSAL_LINKS:
                 break
 
+            urns_at_hop = nodes_by_hop[hop]
+            evidences = self._collect_evidence_parallel(urns_at_hop)
             hop_evidence = [
                 {"urn": urn, "hop": hop, **evidence}
-                for urn in nodes_by_hop[hop]
-                for evidence in [self._collect_evidence(urn)]
+                for urn, evidence in zip(urns_at_hop, evidences)
                 if evidence is not None
             ]
             if not hop_evidence:
@@ -95,6 +128,26 @@ class RootCauseDiagnoser:
             "confidence": self._confidence(causal_chain),
         }
 
+    def _collect_evidence_parallel(self, urns: List[str]) -> List[Optional[Dict[str, Any]]]:
+        """
+        Corre _collect_evidence para todos los URNs de un mismo hop en
+        paralelo (hasta MAX_PARALLEL_REQUESTS a la vez) en vez de uno por
+        uno. Con un solo nodo por hop (el caso común) es equivalente a la
+        versión secuencial; el beneficio aparece en nodos con fan-in ancho.
+        Devuelve los resultados en el mismo orden que `urns`.
+        """
+        if len(urns) <= 1:
+            return [self._collect_evidence(urn) for urn in urns]
+
+        with ThreadPoolExecutor(max_workers=min(len(urns), MAX_PARALLEL_REQUESTS)) as pool:
+            return list(pool.map(self._collect_evidence, urns))
+
+    def _get_aspect_cached(self, urn: str, aspect_type: Type) -> Any:
+        key = (urn, aspect_type)
+        if key not in self._aspect_cache:
+            self._aspect_cache[key] = self.client.graph.get_aspect(urn, aspect_type)
+        return self._aspect_cache[key]
+
     def _collect_evidence(self, urn: str) -> Optional[Dict[str, Any]]:
         """Busca evidencia concreta (tag, owner, freshness, schema) sobre un URN."""
         tag_evidence = self._check_incident_tags(urn)
@@ -116,7 +169,7 @@ class RootCauseDiagnoser:
         return None
 
     def _check_incident_tags(self, urn: str) -> Optional[Dict[str, Any]]:
-        tags = self.client.graph.get_aspect(urn, GlobalTagsClass)
+        tags = self._get_aspect_cached(urn, GlobalTagsClass)
         if not tags:
             return None
         for assoc in tags.tags:
@@ -131,7 +184,7 @@ class RootCauseDiagnoser:
         return None
 
     def _check_recent_schema_change(self, urn: str) -> Optional[Dict[str, Any]]:
-        schema = self.client.graph.get_aspect(urn, SchemaMetadataClass)
+        schema = self._get_aspect_cached(urn, SchemaMetadataClass)
         if not schema or not schema.lastModified:
             return None
         age_hours = self._hours_since(schema.lastModified.time)
@@ -144,7 +197,7 @@ class RootCauseDiagnoser:
         return None
 
     def _check_staleness(self, urn: str) -> Optional[Dict[str, Any]]:
-        props = self.client.graph.get_aspect(urn, DatasetPropertiesClass)
+        props = self._get_aspect_cached(urn, DatasetPropertiesClass)
         if not props or not props.lastModified:
             return None
         age_hours = self._hours_since(props.lastModified.time)
@@ -157,7 +210,7 @@ class RootCauseDiagnoser:
         return None
 
     def _check_ownership(self, urn: str) -> Optional[Dict[str, Any]]:
-        ownership = self.client.graph.get_aspect(urn, OwnershipClass)
+        ownership = self._get_aspect_cached(urn, OwnershipClass)
         if ownership is not None and not ownership.owners:
             return {
                 "evidence_type": "unowned",

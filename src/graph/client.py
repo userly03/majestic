@@ -26,6 +26,7 @@ from config.settings import (
     CONNECT_RETRY_WAIT_MIN_SECONDS,
     DATAHUB_GMS_TOKEN,
     DATAHUB_GMS_URL,
+    HTTP_RETRY_MAX_TIMES,
     HTTP_TIMEOUT_SECONDS,
 )
 
@@ -79,6 +80,7 @@ class DataHubClient:
                 server=self.server,
                 token=self.token,
                 timeout_sec=HTTP_TIMEOUT_SECONDS,
+                retry_max_times=HTTP_RETRY_MAX_TIMES,
             )
         )
         graph.test_connection()

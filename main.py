@@ -2,7 +2,7 @@
 Entrypoint CLI de Majestic.
 
 Uso:
-    python3 main.py diagnose <urn> [--write] [--business-context "texto"]
+    python3 main.py diagnose <urn> [--write] [--business-context "texto"] [--explain]
     python3 main.py impact <urn>
     python3 main.py doctor
 """
@@ -16,6 +16,7 @@ from pathlib import Path
 import requests
 
 from src.core.agent import MajesticAgent
+from src.core.narrator import explain
 from src.graph.client import DataHubClient
 from src.impact.simulator import ImpactSimulator
 from src.memory.writer import DiagnosisWriter
@@ -37,7 +38,9 @@ _DOCTOR_REPORT = {
 }
 
 
-def cmd_diagnose(client: DataHubClient, urn: str, write: bool, business_context: str) -> None:
+def cmd_diagnose(
+    client: DataHubClient, urn: str, write: bool, business_context: str, explain_flag: bool
+) -> None:
     agent = MajesticAgent(client)
     writer = DiagnosisWriter(client)
 
@@ -52,6 +55,10 @@ def cmd_diagnose(client: DataHubClient, urn: str, write: bool, business_context:
 
     print("\n🩺 Diagnóstico:")
     print(json.dumps(report, indent=2, ensure_ascii=False))
+
+    if explain_flag:
+        print("\n📝 Explicación:")
+        print(explain(report))
 
     if write:
         ok = writer.write_report(urn, report, business_context=business_context)
@@ -221,6 +228,15 @@ def main() -> None:
         default=None,
         help="Contexto de negocio / lección aprendida a guardar junto al diagnóstico.",
     )
+    diagnose_parser.add_argument(
+        "--explain",
+        action="store_true",
+        help=(
+            "Redacta la cadena de evidencia en lenguaje natural. Hoy es una "
+            "plantilla determinística (no llama a ningún LLM externo) — ver "
+            "src/core/narrator.py."
+        ),
+    )
 
     impact_parser = subparsers.add_parser("impact", help="Simula el impacto downstream de un cambio.")
     impact_parser.add_argument("urn", help="URN del dataset a modificar.")
@@ -243,7 +259,7 @@ def main() -> None:
 
     try:
         if args.command == "diagnose":
-            cmd_diagnose(client, args.urn, args.write, args.business_context)
+            cmd_diagnose(client, args.urn, args.write, args.business_context, args.explain)
         elif args.command == "impact":
             cmd_impact(client, args.urn)
     except Exception as exc:

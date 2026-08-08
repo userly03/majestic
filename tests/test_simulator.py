@@ -41,6 +41,18 @@ def test_simulate_no_downstream_is_no_risk(connected_client):
     assert result["affected_owners"] == []
 
 
+def test_simulate_single_downstream_node_uses_non_parallel_path(connected_client):
+    # Un solo nodo downstream ejercita la rama sin ThreadPoolExecutor de
+    # _collect_owners (len(urns) == 1).
+    downstream = [{"urn": "d1", "entity_type": "dataset", "hop": 1}]
+    owners_by_urn = {"d1": ["urn:li:corpuser:alice"]}
+    simulator = _simulator_with_downstream(connected_client, downstream, owners_by_urn)
+
+    result = simulator.simulate("A")
+
+    assert result["affected_owners"] == ["urn:li:corpuser:alice"]
+
+
 def test_simulate_collects_deduped_sorted_owners(connected_client):
     downstream = [
         {"urn": "d1", "entity_type": "dataset", "hop": 1},

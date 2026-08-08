@@ -14,9 +14,9 @@ load_dotenv()
 DATAHUB_GMS_URL = os.getenv("DATAHUB_GMS_URL", "http://localhost:8080")
 DATAHUB_GMS_TOKEN = os.getenv("DATAHUB_GMS_TOKEN")
 
-# Reintentos al establecer conexión (no reintentos por-request; eso ya lo
-# maneja DataHubGraphConfig internamente). Si DataHub "parpadea" al arrancar
-# el agente, esto evita morir en el primer intento.
+# Reintentos al establecer conexión, en nuestra propia capa (tenacity, en
+# client.py). Si DataHub "parpadea" al arrancar el agente, esto evita morir
+# en el primer intento.
 CONNECT_RETRY_ATTEMPTS = int(os.getenv("MAJESTIC_CONNECT_RETRY_ATTEMPTS", "3"))
 CONNECT_RETRY_WAIT_MIN_SECONDS = float(os.getenv("MAJESTIC_CONNECT_RETRY_WAIT_MIN", "1"))
 CONNECT_RETRY_WAIT_MAX_SECONDS = float(os.getenv("MAJESTIC_CONNECT_RETRY_WAIT_MAX", "10"))
@@ -26,8 +26,25 @@ CONNECT_RETRY_WAIT_MAX_SECONDS = float(os.getenv("MAJESTIC_CONNECT_RETRY_WAIT_MA
 # esperando indefinidamente, justo el tipo de cosa que no puede pasar en vivo.
 HTTP_TIMEOUT_SECONDS = float(os.getenv("MAJESTIC_HTTP_TIMEOUT_SECONDS", "10"))
 
+# Reintentos internos del SDK por request HTTP (urllib3, con backoff
+# exponencial propio). IMPORTANTE: por defecto son 4 y SÍ se activan también
+# ante "connection refused", no solo ante 5xx — medido contra un GMS caído,
+# un solo test_connection() con el default tardaba 28s en fallar. Como ya
+# reintentamos la conexión en nuestra propia capa (CONNECT_RETRY_ATTEMPTS),
+# tener las dos capas en su valor por defecto multiplica la espera (3 × 28s
+# ≈ 90s antes de reportar "no se pudo conectar" — inaceptable en vivo). Lo
+# bajamos a un valor chico: sigue absorbiendo un blip transitorio aislado en
+# medio de una operación normal, sin convertir "DataHub está caído" en un
+# cuelgue de minuto y medio.
+HTTP_RETRY_MAX_TIMES = int(os.getenv("MAJESTIC_HTTP_RETRY_MAX_TIMES", "2"))
+
 # --- Traversal de lineage ---
 DEFAULT_MAX_HOPS = int(os.getenv("MAJESTIC_MAX_HOPS", "3"))
+
+# Máximo de llamadas get_aspect en paralelo por hop (diagnóstico) o por lote
+# (impact). Grafos angostos no lo notan; en grafos anchos evita que la
+# latencia percibida crezca linealmente con el fan-in de un nodo.
+MAX_PARALLEL_REQUESTS = int(os.getenv("MAJESTIC_MAX_PARALLEL_REQUESTS", "8"))
 
 # --- Diagnóstico (Fase 2) ---
 # Máximo de eslabones causales evidenciados que se persiguen upstream.

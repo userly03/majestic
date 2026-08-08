@@ -6,11 +6,12 @@ para estimar qué tablas, dashboards y owners se verían afectados.
 """
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 
 from datahub.metadata.schema_classes import OwnershipClass
 
-from config.settings import DEFAULT_MAX_HOPS
+from config.settings import DEFAULT_MAX_HOPS, MAX_PARALLEL_REQUESTS
 from src.graph.client import DataHubClient
 from src.graph.traversal import LineageTraversal
 
@@ -60,9 +61,23 @@ class ImpactSimulator:
         return impact_report
 
     def _collect_owners(self, downstream_nodes: List[Dict[str, Any]]) -> List[str]:
+        urns = [node["urn"] for node in downstream_nodes]
+        if not urns:
+            return []
+
+        # Un get_aspect por nodo downstream; en paralelo para que la latencia
+        # no crezca linealmente con cuántos consumidores tenga el dataset.
+        def fetch_ownership(urn: str):
+            return self.client.graph.get_aspect(urn, OwnershipClass)
+
+        if len(urns) == 1:
+            ownerships = [fetch_ownership(urns[0])]
+        else:
+            with ThreadPoolExecutor(max_workers=min(len(urns), MAX_PARALLEL_REQUESTS)) as pool:
+                ownerships = list(pool.map(fetch_ownership, urns))
+
         owners = set()
-        for node in downstream_nodes:
-            ownership = self.client.graph.get_aspect(node["urn"], OwnershipClass)
+        for ownership in ownerships:
             if ownership:
                 owners.update(owner.owner for owner in ownership.owners)
         return sorted(owners)

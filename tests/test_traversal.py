@@ -86,6 +86,32 @@ def test_get_downstream_captures_entity_type(connected_client):
     assert nodes[0]["entity_type"] == "dashboard"
 
 
+def test_get_upstream_paginates_multi_page_response(connected_client):
+    # scroll_lineage puede devolver la relación en varias páginas para un
+    # mismo anchor; _one_hop debe seguir el scroll_id hasta que sea None y
+    # combinar los resultados de todas las páginas, no solo la primera.
+    call_scroll_ids = []
+
+    def side_effect(*, urns, direction, count, scroll_id):
+        call_scroll_ids.append(scroll_id)
+        if scroll_id is None:
+            # Primera página: trae un scroll_id para pedir la segunda.
+            return _scroll_result([_rel(source_urn="B1", dest_urn="A")], scroll_id="page-2")
+        if scroll_id == "page-2":
+            # Segunda página: sin más scroll_id, acá termina la paginación.
+            return _scroll_result([_rel(source_urn="B2", dest_urn="A")], scroll_id=None)
+        raise AssertionError(f"scroll_id inesperado: {scroll_id!r}")
+
+    connected_client.graph.scroll_lineage.side_effect = side_effect
+
+    traversal = LineageTraversal(connected_client)
+    nodes = traversal.get_upstream("A", max_hops=1)
+
+    assert {n["urn"] for n in nodes} == {"B1", "B2"}
+    assert call_scroll_ids == [None, "page-2"]
+    assert connected_client.graph.scroll_lineage.call_count == 2
+
+
 def test_traversal_raises_if_client_not_connected(connected_client):
     connected_client.is_connected = False
     try:
