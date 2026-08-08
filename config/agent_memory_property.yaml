@@ -1,0 +1,64 @@
+# Definición de la memoria episódica de Majestic como structured properties de DataHub.
+# Aplicar con: datahub properties upsert -f config/agent_memory_property.yaml
+#
+# Formato verificado contra la doc oficial de `datahub properties upsert` (acryl-datahub 1.7.0).
+# Si tu versión del SDK usa un esquema distinto, este es el primer archivo a revisar
+# en scripts/spike_writeback_test.py antes de asumir que el agente completo funciona.
+
+- id: majestic.patternSignature
+  qualifiedName: majestic.patternSignature
+  type: string
+  cardinality: SINGLE
+  displayName: "Majestic - Firma de patrón"
+  description: >
+    Firma determinista del patrón de fallo, con formato
+    "tipo_anomalia:profundidad:upstream:downstream". Permite a Majestic
+    reconocer la misma estructura causal en otra entidad y reutilizar
+    el diagnóstico en vez de razonar desde cero.
+  entityTypes:
+    - dataset
+
+- id: majestic.diagnosis
+  qualifiedName: majestic.diagnosis
+  type: string
+  cardinality: SINGLE
+  displayName: "Majestic - Diagnóstico"
+  description: >
+    Diagnóstico de causa raíz generado por el agente, con la cadena
+    causal (máximo 3 eslabones) y la evidencia concreta del grafo que
+    respalda cada eslabón.
+  entityTypes:
+    - dataset
+
+- id: majestic.businessContext
+  qualifiedName: majestic.businessContext
+  type: string
+  cardinality: SINGLE
+  displayName: "Majestic - Contexto de negocio"
+  description: >
+    Texto libre editable por un humano al cerrar el incidente: lección
+    aprendida o contexto de negocio que el agente no puede inferir del
+    grafo por sí solo.
+  entityTypes:
+    - dataset
+
+- id: majestic.confidenceScore
+  qualifiedName: majestic.confidenceScore
+  type: number
+  cardinality: SINGLE
+  displayName: "Majestic - Score de confianza"
+  description: >
+    Confianza (0.0 a 1.0) del diagnóstico, en función de cuánta
+    evidencia concreta respalda la cadena causal.
+  entityTypes:
+    - dataset
+
+- id: majestic.diagnosedAt
+  qualifiedName: majestic.diagnosedAt
+  type: string
+  cardinality: SINGLE
+  displayName: "Majestic - Diagnosticado en"
+  description: >
+    Timestamp ISO 8601 de cuándo se generó (o reutilizó) este diagnóstico.
+  entityTypes:
+    - dataset

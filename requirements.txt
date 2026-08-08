@@ -1,0 +1,5 @@
+acryl-datahub==1.7.0
+requests
+pydantic
+python-dotenv
+pytest
