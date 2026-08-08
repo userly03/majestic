@@ -26,6 +26,7 @@ from config.settings import (
     CONNECT_RETRY_WAIT_MIN_SECONDS,
     DATAHUB_GMS_TOKEN,
     DATAHUB_GMS_URL,
+    HTTP_TIMEOUT_SECONDS,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,7 +75,11 @@ class DataHubClient:
         (reraise=True) para que el try/except del constructor la capture.
         """
         graph = DataHubGraph(
-            DatahubClientConfig(server=self.server, token=self.token)
+            DatahubClientConfig(
+                server=self.server,
+                token=self.token,
+                timeout_sec=HTTP_TIMEOUT_SECONDS,
+            )
         )
         graph.test_connection()
         return graph

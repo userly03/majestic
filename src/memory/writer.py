@@ -8,7 +8,7 @@ entidad presenta la misma firma de patrón estructural.
 
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from datahub.metadata.schema_classes import StructuredPropertiesClass
 from datahub.specific.dataset import DatasetPatchBuilder
@@ -85,38 +85,86 @@ class DiagnosisWriter:
         Busca una entidad ya diagnosticada con la misma firma de patrón
         estructural y devuelve su diagnóstico persistido, si existe.
 
-        Nota: el nombre exacto del campo de búsqueda para structured
-        properties (`structuredProperties.<qualifiedName>`) depende de cómo
-        indexa DataHub esa propiedad en Elasticsearch; validar contra la
-        instancia real en scripts/spike_writeback_test.py antes de confiar
-        en este método para la demo.
+        Nunca rompe el flujo del agente: si la búsqueda estructurada (Plan A)
+        falla o no encuentra nada, cae a una búsqueda de texto libre (Plan B,
+        ver _search_by_pattern_signature). Si ambos planes fallan, devuelve
+        None como "no se encontró nada" en vez de propagar la excepción —
+        no encontrar memoria previa no debería impedir diagnosticar.
+        """
+        candidate_urns = self._search_by_pattern_signature(pattern_signature)
+
+        for candidate_urn in candidate_urns:
+            if candidate_urn == exclude_urn:
+                continue
+            try:
+                diagnosis = self.read_diagnosis(candidate_urn)
+            except Exception as exc:
+                logger.warning("No se pudo leer %s, se lo salta: %s", candidate_urn, exc)
+                continue
+
+            # Plan B es texto libre, así que puede traer falsos positivos
+            # (coincidencias parciales) — confirmamos la firma exacta antes
+            # de dar por buena la reutilización.
+            if diagnosis and diagnosis.get("pattern_signature") == pattern_signature:
+                logger.info(
+                    "♻️  Firma '%s' ya vista en %s, reutilizando diagnóstico.",
+                    pattern_signature,
+                    candidate_urn,
+                )
+                return {"source_urn": candidate_urn, **diagnosis}
+
+        return None
+
+    def _search_by_pattern_signature(self, pattern_signature: str) -> List[str]:
+        """
+        Plan A: búsqueda estructurada por `extraFilters` sobre
+        `structuredProperties.<qualifiedName>`. Es el mecanismo correcto,
+        pero el nombre exacto del campo indexado depende de cómo DataHub
+        mapea esa property en Elasticsearch — no confirmado contra una
+        instancia real (ver README, sección "Notas técnicas").
+
+        Plan B: si Plan A lanza una excepción, o "funciona" pero no trae
+        resultados (que puede ser un true negative genuino, o el mapping
+        de búsqueda silenciosamente distinto), se prueba una búsqueda de
+        texto libre (`query=`) que no depende de ese nombre de campo.
         """
         try:
-            candidate_urns = self.client.graph.get_urns_by_filter(
-                entity_types=["dataset"],
-                extraFilters=[
-                    {
-                        "field": f"structuredProperties.{_PROP_PATTERN_SIGNATURE}",
-                        "values": [pattern_signature],
-                        "condition": "EQUAL",
-                    }
-                ],
+            urns = list(
+                self.client.graph.get_urns_by_filter(
+                    entity_types=["dataset"],
+                    extraFilters=[
+                        {
+                            "field": f"structuredProperties.{_PROP_PATTERN_SIGNATURE}",
+                            "values": [pattern_signature],
+                            "condition": "EQUAL",
+                        }
+                    ],
+                )
             )
-            for candidate_urn in candidate_urns:
-                if candidate_urn == exclude_urn:
-                    continue
-                diagnosis = self.read_diagnosis(candidate_urn)
-                if diagnosis:
-                    logger.info(
-                        "♻️  Firma '%s' ya vista en %s, reutilizando diagnóstico.",
-                        pattern_signature,
-                        candidate_urn,
-                    )
-                    return {"source_urn": candidate_urn, **diagnosis}
-            return None
+            if urns:
+                return urns
+            logger.info(
+                "Plan A (búsqueda estructurada) no encontró nada para '%s'; "
+                "probando Plan B (texto libre) por si el campo de búsqueda "
+                "no es el asumido.",
+                pattern_signature,
+            )
         except Exception as exc:
-            logger.error("❌ Error buscando diagnóstico previo: %s", exc)
-            return None
+            logger.warning(
+                "Plan A (búsqueda estructurada) falló (%s); probando Plan B (texto libre).",
+                exc,
+            )
+
+        try:
+            return list(
+                self.client.graph.get_urns_by_filter(
+                    entity_types=["dataset"],
+                    query=pattern_signature,
+                )
+            )
+        except Exception as exc:
+            logger.error("❌ Plan B (texto libre) también falló: %s", exc)
+            return []
 
     def read_diagnosis(self, urn: str) -> Optional[Dict[str, Any]]:
         """Lee de vuelta las structured properties de memoria persistidas sobre un URN."""

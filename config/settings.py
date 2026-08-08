@@ -21,6 +21,11 @@ CONNECT_RETRY_ATTEMPTS = int(os.getenv("MAJESTIC_CONNECT_RETRY_ATTEMPTS", "3"))
 CONNECT_RETRY_WAIT_MIN_SECONDS = float(os.getenv("MAJESTIC_CONNECT_RETRY_WAIT_MIN", "1"))
 CONNECT_RETRY_WAIT_MAX_SECONDS = float(os.getenv("MAJESTIC_CONNECT_RETRY_WAIT_MAX", "10"))
 
+# Timeout por request HTTP hacia el GMS. Sin esto, DatahubClientConfig no
+# aplica ningún límite propio — un GMS colgado puede dejar al agente
+# esperando indefinidamente, justo el tipo de cosa que no puede pasar en vivo.
+HTTP_TIMEOUT_SECONDS = float(os.getenv("MAJESTIC_HTTP_TIMEOUT_SECONDS", "10"))
+
 # --- Traversal de lineage ---
 DEFAULT_MAX_HOPS = int(os.getenv("MAJESTIC_MAX_HOPS", "3"))
 

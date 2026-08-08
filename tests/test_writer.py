@@ -92,3 +92,66 @@ def test_find_previous_diagnosis_skips_excluded_urn(connected_client):
     result = writer.find_previous_diagnosis("sig", exclude_urn="A")
 
     assert result["source_urn"] == "B"
+
+
+def test_find_previous_diagnosis_rejects_plan_b_false_positive(connected_client):
+    # Plan B es texto libre: puede traer un candidato cuya firma real no
+    # coincide exactamente. No debe darse por buena esa coincidencia parcial.
+    connected_client.graph.get_urns_by_filter.return_value = iter(["A"])
+    writer = DiagnosisWriter(connected_client)
+    writer.read_diagnosis = MagicMock(return_value={"pattern_signature": "otra_firma:9:9:9"})
+
+    result = writer.find_previous_diagnosis("sig:1:2:3")
+
+    assert result is None
+
+
+def test_find_previous_diagnosis_skips_candidate_that_fails_to_read(connected_client):
+    connected_client.graph.get_urns_by_filter.return_value = iter(["A", "B"])
+    writer = DiagnosisWriter(connected_client)
+
+    def flaky_read(urn):
+        if urn == "A":
+            raise Exception("boom")
+        return {"pattern_signature": "sig"}
+
+    writer.read_diagnosis = MagicMock(side_effect=flaky_read)
+
+    result = writer.find_previous_diagnosis("sig")
+
+    assert result["source_urn"] == "B"
+
+
+def test_search_falls_back_to_plan_b_when_plan_a_raises(connected_client):
+    connected_client.graph.get_urns_by_filter.side_effect = [
+        Exception("campo de búsqueda inválido"),
+        iter(["B"]),
+    ]
+    writer = DiagnosisWriter(connected_client)
+
+    result = writer._search_by_pattern_signature("sig")
+
+    assert result == ["B"]
+    assert connected_client.graph.get_urns_by_filter.call_count == 2
+    # Plan B debe ser una búsqueda de texto libre (query=), no extraFilters.
+    _, plan_b_kwargs = connected_client.graph.get_urns_by_filter.call_args_list[1]
+    assert plan_b_kwargs.get("query") == "sig"
+
+
+def test_search_falls_back_to_plan_b_when_plan_a_returns_nothing(connected_client):
+    connected_client.graph.get_urns_by_filter.side_effect = [iter([]), iter(["C"])]
+    writer = DiagnosisWriter(connected_client)
+
+    result = writer._search_by_pattern_signature("sig")
+
+    assert result == ["C"]
+    assert connected_client.graph.get_urns_by_filter.call_count == 2
+
+
+def test_search_returns_empty_when_both_plans_fail(connected_client):
+    connected_client.graph.get_urns_by_filter.side_effect = Exception("boom")
+    writer = DiagnosisWriter(connected_client)
+
+    result = writer._search_by_pattern_signature("sig")
+
+    assert result == []
