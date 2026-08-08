@@ -2,8 +2,8 @@
 Entrypoint CLI de Majestic.
 
 Uso:
-    python3 main.py diagnose <urn> [--write] [--business-context "texto"] [--explain]
-    python3 main.py impact <urn>
+    python3 main.py [--quiet] diagnose <urn> [--write] [--business-context "texto"] [--explain]
+    python3 main.py [--quiet] impact <urn>
     python3 main.py doctor
 """
 
@@ -21,10 +21,6 @@ from src.graph.client import DataHubClient
 from src.impact.simulator import ImpactSimulator
 from src.memory.writer import DiagnosisWriter
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
-)
 logger = logging.getLogger(__name__)
 
 MEMORY_PROPERTY_YAML = str(
@@ -216,6 +212,14 @@ def _human_error(exc: Exception) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Majestic — agente de linaje y observabilidad de datos.")
+    parser.add_argument(
+        "--quiet",
+        action="store_true",
+        help=(
+            "Suprime los logs internos (conexión, traversal, etc.) y deja solo "
+            "el resultado final — pensado para compartir pantalla en una demo."
+        ),
+    )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     diagnose_parser = subparsers.add_parser("diagnose", help="Diagnostica la causa raíz de un URN.")
@@ -247,6 +251,11 @@ def main() -> None:
     )
 
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.WARNING if args.quiet else logging.INFO,
+        format="%(asctime)s | %(levelname)-7s | %(name)s | %(message)s",
+    )
 
     if args.command == "doctor":
         cmd_doctor()

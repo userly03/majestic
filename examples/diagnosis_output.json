@@ -1,0 +1,18 @@
+{
+  "target_urn": "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)",
+  "upstream_count": 2,
+  "downstream_count": 1,
+  "root_cause_urn": "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.marketing_etl,PROD)",
+  "reason": "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.marketing_etl,PROD) (hop 1): tag 'urn:li:tag:majestic_demo_incident' coincide con palabra clave de incidente 'incident'",
+  "causal_chain": [
+    {
+      "urn": "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.marketing_etl,PROD)",
+      "hop": 1,
+      "evidence_type": "incident_tag",
+      "evidence": "tag 'urn:li:tag:majestic_demo_incident' coincide con palabra clave de incidente 'incident'",
+      "weight": 0.9
+    }
+  ],
+  "confidence": 0.9,
+  "pattern_signature": "incident_tag:1:2:1"
+}

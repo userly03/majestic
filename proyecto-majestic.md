@@ -36,13 +36,13 @@ No decimos "somos los primeros en gobernanza con IA" — eso ya lo hace DataHub 
 
 ## Cómo funciona
 
-**Fase 1 — Reconocimiento.** Lee lineage, schemas, ownership, freshness vía DataHub SDK/MCP Server. Calcula métricas estructurales (profundidad, upstream/downstream count).
+**Fase 1 — Reconocimiento.** Lee lineage, schemas, ownership, freshness vía el SDK Python de DataHub (`DataHubGraph`, no un MCP Server — se evaluó y se optó por el SDK directo). Calcula métricas estructurales (profundidad, upstream/downstream count).
 
-**Fase 2 — Diagnóstico.** Ante una anomalía, recorre el lineage hacia atrás buscando evidencia real en el grafo (no especulación del LLM). Máximo 3 eslabones causales, cada uno respaldado por un dato concreto (timestamp, tag, owner, assertion). Si no hay evidencia, la cadena se detiene ahí.
+**Fase 2 — Diagnóstico.** Ante una anomalía, recorre el lineage hacia atrás buscando evidencia real en el grafo (no especulación del LLM). Máximo 3 eslabones causales, cada uno respaldado por un dato concreto: tag de incidente, ausencia de owner, dataset obsoleto (freshness) o schema modificado recientemente — cuatro tipos de evidencia implementados hoy en `src/core/diagnoser.py` (no incluye assertions de DataHub todavía). Si no hay evidencia, la cadena se detiene ahí.
 
 **Fase 3 — Memoria.** Guarda el diagnóstico como `structuredProperties` sobre la entidad: una firma de patrón determinista (`tipo_anomalía:profundidad:upstream:downstream`), el diagnóstico en texto, un campo de **contexto de negocio / lección aprendida** (texto libre que un humano puede enriquecer al cerrar el incidente), y un score de confianza. Si el agente ve la misma firma en otra entidad, recupera el diagnóstico anterior en vez de razonar desde cero.
 
-**Simulador de impacto (bonus, mismo mecanismo invertido).** El traversal de la Fase 1 funciona hacia arriba (upstream) para diagnóstico. El mismo código, recorriendo hacia abajo (downstream), responde antes de que un cambio se ejecute: *"si modificas esta columna, rompes 3 informes, 2 modelos de ML y 1 dashboard ejecutivo — estos son los owners a notificar."* Costo marginal mínimo porque reutiliza el traversal ya construido; no es un módulo nuevo, es el mismo con la dirección invertida.
+**Simulador de impacto (bonus, mismo mecanismo invertido).** El traversal de la Fase 1 funciona hacia arriba (upstream) para diagnóstico. El mismo código, recorriendo hacia abajo (downstream), responde antes de que un cambio se ejecute: *"si modificas este dataset, afectás N datasets downstream, M de ellos dashboards — estos son los owners a notificar."* Costo marginal mínimo porque reutiliza el traversal ya construido; no es un módulo nuevo, es el mismo con la dirección invertida. (Nota: hoy `ImpactSimulator` distingue datasets de dashboards, pero no subtipos como "modelos de ML" — la frase original de este pitch era una ilustración conceptual, no el formato de salida real; ver `src/impact/simulator.py`.)
 
 ## Qué NO construimos, y por qué
 
@@ -56,53 +56,47 @@ Decisión deliberada, no falta de tiempo:
 
 ### Estado de validación técnica
 
-> Actualizado tras implementar contra el SDK real (no solo documentación).
+> Actualizado a lo largo de 3 rondas de blindaje — ver `PROPOSAL.md` para el detalle completo de cada ronda.
 
-- [x] `datahub properties upsert` con la definición de memoria episódica — YAML en `config/agent_memory_property.yaml`, formato acorde a la doc oficial de `acryl-datahub==1.7.0`. Pendiente de correr contra una instancia local real.
-- [x] Write-back de `structuredProperties` vía SDK Python — implementado en `src/memory/writer.py` con `DatasetPatchBuilder.add_structured_property` + `DataHubGraph.emit_mcps`, métodos confirmados por introspección directa del SDK instalado (no asumidos de memoria). Cubierto por tests con mocks; falta correr `scripts/spike_writeback_test.py` contra una instancia real antes de la demo.
-- [x] Lectura de vuelta de la memoria escrita — `DiagnosisWriter.read_diagnosis`, mismo caveat que el punto anterior.
-- [x] Traversal de lineage upstream/downstream con la profundidad necesaria para el diagnóstico — `src/graph/traversal.py`, BFS multi-hop sobre `DataHubGraph.scroll_lineage`. Verificado con tests unitarios; falta validar el volumen/latencia real con un datapack cargado.
-- [ ] Búsqueda de diagnósticos previos por firma de patrón entre entidades (`find_previous_diagnosis`) — usa un filtro de búsqueda sobre `structuredProperties.<qualifiedName>` cuyo nombre de campo exacto en Elasticsearch no está confirmado contra una instancia real. Es el ítem de mayor riesgo antes de grabar el video demo.
+- [x] `datahub properties upsert` con la definición de memoria episódica — YAML en `config/agent_memory_property.yaml`. **Se encontró y corrigió un bug real acá**: la primera versión usaba nombres de campo camelCase (`displayName`, `entityTypes`) que el modelo pydantic real del SDK rechaza (espera snake_case) — solo se detectó instalando el SDK y parseando el YAML de verdad, no leyendo la doc. `python3 main.py doctor` ahora lo registra automáticamente si falta.
+- [x] Write-back de `structuredProperties` vía SDK Python — `src/memory/writer.py`, `DatasetPatchBuilder.add_structured_property` + `DataHubGraph.emit_mcps`. Cubierto por tests unitarios y por `tests/test_integration.py` (opt-in, contra una instancia real).
+- [x] Lectura de vuelta de la memoria escrita — `DiagnosisWriter.read_diagnosis`, mismo mecanismo de validación.
+- [x] Traversal de lineage upstream/downstream, incluida paginación multi-página — `src/graph/traversal.py`, BFS sobre `DataHubGraph.scroll_lineage`. Cubierto con tests unitarios (incluido el camino de paginación, que al principio no tenía ningún test).
+- [x] Búsqueda de diagnósticos previos por firma de patrón entre entidades (`find_previous_diagnosis`) — el nombre exacto del campo de búsqueda para structured properties en Elasticsearch sigue sin confirmar contra una instancia real, pero ya no es un punto de falla único: si el filtro estructurado (Plan A) falla o no encuentra nada, cae a una búsqueda de texto libre (Plan B). `tests/test_integration.py` valida en runtime cuál de los dos hizo falta.
+- [x] Conexión resiliente a que DataHub tarde en levantar o esté momentáneamente caído — reintentos con backoff (`tenacity`). **Otro hallazgo real**: el retry propio se multiplicaba con el retry interno del SDK, llevando el peor caso a ~90s antes de reportar error; medido y corregido a ~15s. Ver "Notas técnicas" en `README.md`.
 
-**Los nombres de método y clases usados (`DataHubGraph.scroll_lineage`, `LineageDirection`, `DatasetPatchBuilder`, `StructuredPropertiesClass`) fueron confirmados instalando `acryl-datahub==1.7.0` en un entorno aislado e inspeccionando el SDK directamente**, no asumidos de la documentación — exactamente la precaución que esta sección pedía tomar.
+**Los nombres de método y clases usados (`DataHubGraph.scroll_lineage`, `LineageDirection`, `DatasetPatchBuilder`, `StructuredPropertiesClass`, `StructuredProperties.from_yaml`) fueron confirmados instalando `acryl-datahub==1.7.0` en un entorno aislado e inspeccionando el SDK directamente**, no asumidos de la documentación — exactamente la precaución que esta sección pedía tomar, y que en dos casos concretos (el YAML y el retry) encontró bugs reales que la documentación no hubiera revelado.
 
 ## Estructura del repo
 
+Ver [`README.md`](README.md#-arquitectura) para la versión siempre actualizada — acá solo el resumen de alto nivel:
+
 ```
 Majestic/
-├── main.py                          # entrypoint CLI (diagnose / impact)
-├── config/
-│   ├── settings.py                   # configuración centralizada
-│   └── agent_memory_property.yaml    # definición de la memoria episódica
+├── main.py                # CLI: diagnose / impact / doctor
+├── docker-compose.yml      # un comando para correr todo en contenedor
+├── config/                 # configuración centralizada + definición de memoria episódica
 ├── src/
-│   ├── graph/
-│   │   ├── client.py                  # DataHubClient (wrapper sobre DataHubGraph)
-│   │   └── traversal.py               # LineageTraversal — BFS upstream/downstream
-│   ├── core/
-│   │   ├── agent.py                   # MajesticAgent — orquesta las 3 fases
-│   │   └── diagnoser.py               # RootCauseDiagnoser — evidencia + cadena causal
-│   ├── memory/
-│   │   └── writer.py                  # DiagnosisWriter — write-back y lectura de memoria
-│   └── impact/
-│       └── simulator.py               # ImpactSimulator
-├── scripts/
-│   └── spike_writeback_test.py
-├── spike_test.py
-├── tests/
-└── README.md
+│   ├── graph/               # cliente DataHub + traversal BFS
+│   ├── core/                 # orquestación, diagnóstico, síntesis narrativa opcional
+│   ├── memory/                # write-back y lectura de memoria episódica
+│   └── impact/                 # simulador de impacto downstream
+├── scripts/                # spikes, seed de datos de demo, generador de examples/
+├── tests/                   # unitarios (mocks) + integración (opt-in, DataHub real)
+├── examples/                # outputs de ejemplo
+└── .github/workflows/       # CI
 ```
-
-(Nota: el repo real usa `src/` como paquete raíz en vez de `core/` en la raíz, y `writer.py` en vez de `memory.py`, para dejar más claro que cada carpeta es un módulo con una sola responsabilidad. Ver `README.md` para la versión siempre actualizada de esta estructura.)
 
 ## Setup
 
+Ver [`README.md`](README.md#️-instalación-y-ejecución) para la versión completa y siempre actualizada. Resumen:
+
 1. `datahub docker quickstart` — levanta DataHub localmente.
-2. (Opcional) `datahub datapack load nyc-taxi` (o el datapack elegido) para tener lineage real sobre el que diagnosticar.
-3. `pip install -r requirements.txt` (usa un virtualenv; ver README.md).
-4. `datahub properties upsert -f config/agent_memory_property.yaml`
-5. `python3 spike_test.py` — confirma la conexión.
-6. `python3 scripts/spike_writeback_test.py` — confirma el ciclo completo de memoria antes de correr el agente.
-7. `python3 main.py diagnose "<urn>"` — corre el pipeline completo.
+2. `pip install -r requirements.txt` (usar un virtualenv).
+3. `cp .env.example .env`
+4. `python3 main.py doctor` — un solo comando que reemplaza los pasos manuales de conexión + registro de properties + ciclo write/read.
+5. `python3 scripts/seed_demo_data.py` — siembra un grafo con anomalía garantizada (no depende de que el datapack de muestra tenga lineage interesante por casualidad).
+6. `python3 main.py diagnose "<urn>" --explain` — corre el pipeline completo.
 
 ## Prior art (verificado, no asumido)
 
@@ -123,5 +117,5 @@ Apache 2.0 — ver `LICENSE`. (Requisito del hackathon: debe ser visible en la s
 - [ ] Repo público, Apache 2.0 visible en "About"
 - [ ] Descripción del proyecto
 - [ ] Video demo <3 min, YouTube/Vimeo público
-- [ ] `examples/` con outputs reales (diagnóstico generado, captura de la structured property en la UI de DataHub)
+- [ ] `examples/` con outputs reales (diagnóstico generado, captura de la structured property en la UI de DataHub) — hoy `examples/` tiene outputs generados corriendo el código real del agente contra un grafo falso en memoria (`scripts/generate_example_outputs.py`), explícitamente marcados como no-reales en `examples/README.md`. Falta reemplazarlos por outputs de una instancia real + la captura de pantalla antes de tildar esto.
 - [ ] Opcional: opt-in a la encuesta para el Bonus Prize ($50 x 10)

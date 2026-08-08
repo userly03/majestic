@@ -34,10 +34,12 @@ Majestic/
 │       └── simulator.py           # ImpactSimulator — impacto downstream de un cambio
 ├── scripts/
 │   ├── seed_demo_data.py          # siembra un grafo sintético con anomalía garantizada para la demo
-│   └── spike_writeback_test.py   # valida el ciclo completo de memoria antes de correr el agente
+│   ├── generate_example_outputs.py  # regenera examples/ corriendo el agente real (no una instancia real de DataHub)
+│   └── spike_writeback_test.py   # valida el ciclo completo de memoria, con el JSON exacto que se envía
 ├── spike_test.py                 # valida solo la conexión a DataHub
-├── tests/                        # tests de humo por módulo (mocks sobre DataHubClient)
-└── examples/                     # outputs reales de ejemplo (para la submission)
+├── docker-compose.yml            # un comando para correr todo en contenedor
+├── tests/                        # 46 unitarios (mocks) + 4 de integración (opt-in, DataHub real)
+└── examples/                     # outputs de ejemplo — ver examples/README.md sobre qué tan "reales" son hoy
 ```
 
 - `src/graph`: cliente y traversal sobre DataHub (GMS).
@@ -103,18 +105,31 @@ python3 main.py diagnose "<urn>" --explain
 
 # Simular el impacto downstream de un cambio antes de ejecutarlo
 python3 main.py impact "<urn>"
+
+# --quiet suprime los logs internos (conexión, traversal...) y deja solo
+# el resultado final — para compartir pantalla en la demo. Va ANTES del
+# subcomando.
+python3 main.py --quiet diagnose "<urn>" --explain
 ```
 
 ### Con Docker
 
+Con `docker compose` (recomendado — un solo comando, ver `docker-compose.yml`):
+
+```bash
+docker compose up                                                  # corre spike_test.py, valida conexión
+docker compose run --rm majestic python main.py doctor
+docker compose run --rm majestic python main.py diagnose "<urn>" --explain
+docker compose run --rm majestic python scripts/seed_demo_data.py
+```
+
+El primer build tarda varios minutos (la dependencia `acryl-datahub` es pesada); los siguientes usan cache. Verificado de punta a punta: build real + `docker compose run ... python main.py doctor` contra un DataHub inexistente falla en ~15s con el mensaje esperado, no se cuelga ni tira un traceback.
+
+O sin compose, directo con `docker`:
+
 ```bash
 docker build -t majestic .
 docker run --rm --network host --env-file .env majestic
-```
-
-Por defecto el contenedor corre `spike_test.py` (valida conexión). Para correr el agente completo, sobrescribe el comando:
-
-```bash
 docker run --rm --network host --env-file .env majestic python main.py diagnose "<urn>"
 ```
 
@@ -122,7 +137,7 @@ docker run --rm --network host --env-file .env majestic python main.py diagnose 
 
 ```bash
 pip install -r requirements.txt
-pytest                                          # 37 tests unitarios (mocks, siempre corren)
+pytest                                          # 46 tests unitarios (mocks, siempre corren)
 MAJESTIC_RUN_INTEGRATION_TESTS=1 pytest -m integration   # 4 tests contra DataHub real (ver Notas técnicas)
 ```
 
@@ -130,10 +145,12 @@ Los unitarios corren automáticamente en cada push vía `.github/workflows/ci.ym
 
 ## Estado de validación técnica
 
-- [x] Traversal de lineage upstream/downstream vía `DataHubGraph.scroll_lineage` — verificado por introspección directa del SDK instalado (`acryl-datahub==1.7.0`).
-- [x] Write-back de `structuredProperties` vía `DatasetPatchBuilder.add_structured_property` + `emit_mcps` — implementado, cubierto por tests unitarios con mocks; **falta correrlo contra una instancia real** con `scripts/spike_writeback_test.py`.
-- [x] Lectura de vuelta de la memoria escrita — implementado en `DiagnosisWriter.read_diagnosis`, mismo caveat que el punto anterior.
-- [x] Búsqueda de diagnósticos previos por firma de patrón (`find_previous_diagnosis`) — el nombre exacto del campo de búsqueda para structured properties en Elasticsearch sigue sin confirmar contra una instancia real, pero ahora tiene un plan B de texto libre si el filtro estructurado falla o no encuentra nada (ver "Notas técnicas"). Igual es el primer ítem a correr con `scripts/spike_writeback_test.py` antes de la demo.
+- [x] Traversal de lineage upstream/downstream, incluida paginación multi-página, vía `DataHubGraph.scroll_lineage` — verificado por introspección directa del SDK instalado (`acryl-datahub==1.7.0`) y por tests unitarios.
+- [x] Write-back de `structuredProperties` vía `DatasetPatchBuilder.add_structured_property` + `emit_mcps` — cubierto por tests unitarios y por `tests/test_integration.py` (opt-in, contra una instancia real).
+- [x] Lectura de vuelta de la memoria escrita — `DiagnosisWriter.read_diagnosis`, mismo mecanismo de validación.
+- [x] Búsqueda de diagnósticos previos por firma de patrón (`find_previous_diagnosis`) — el nombre exacto del campo de búsqueda para structured properties en Elasticsearch sigue sin confirmar contra una instancia real, pero ahora tiene un plan B de texto libre si el filtro estructurado falla o no encuentra nada (ver "Notas técnicas" abajo).
+- [x] `python3 main.py doctor` — conexión + registro de properties + ciclo write/read en un solo comando, con timeout y retry acotados (~15s peor caso si DataHub no responde).
+- [ ] Todo lo anterior, corrido contra una instancia real de DataHub en esta sesión — sigue pendiente (`MAJESTIC_RUN_INTEGRATION_TESTS=1 pytest -m integration`, o `main.py doctor` a mano). Es el primer paso antes de grabar el video.
 
 Ver la sección "Estado de validación técnica" en [`proyecto-majestic.md`](proyecto-majestic.md) para el detalle completo y el razonamiento detrás de cada decisión.
 
@@ -143,7 +160,7 @@ Transparencia sobre lo que todavía no está probado contra una instancia real, 
 
 - **`DiagnosisWriter.find_previous_diagnosis` sigue siendo el punto de mayor incertidumbre del proyecto, aunque ya tiene un plan B.** Busca entidades con la misma firma de patrón con un filtro estructurado (`get_urns_by_filter` con `extraFilters` sobre `structuredProperties.<qualifiedName>` — Plan A). El *método* del SDK está confirmado por introspección directa contra `acryl-datahub==1.7.0`, pero **el nombre exacto del campo indexado en Elasticsearch para structured properties custom depende de cómo DataHub construye el mapping de búsqueda**, y eso solo se confirma corriéndolo contra una instancia real. Si Plan A lanza una excepción, o "funciona" pero no devuelve nada, `_search_by_pattern_signature` cae automáticamente a una búsqueda de texto libre (`query=`, Plan B) que no depende de ese nombre de campo — y cualquier resultado de Plan B se re-valida contra la firma exacta antes de reutilizarlo, para no dar por buena una coincidencia parcial de texto libre. Ninguno de los dos planes puede tirar abajo `diagnose`: si ambos fallan, `find_previous_diagnosis` devuelve `None` (equivalente a "no se encontró memoria previa"), nunca una excepción. **Igual se valida en runtime con `scripts/spike_writeback_test.py` antes de la demo** — Plan B reduce el riesgo de que la demo se vea rota, pero no reemplaza confirmar que Plan A funciona de verdad.
 - **Reintentos de conexión, con un hallazgo real detrás.** `DataHubClient` reintenta la conexión inicial hasta 3 veces con backoff exponencial (`tenacity`) antes de darse por vencido. Pero el SDK *ya* reintenta cada request HTTP internamente (`DatahubClientConfig.retry_max_times`, default 4, con backoff propio) — y ese default retría incluso "connection refused", no solo 5xx. Medido contra un GMS caído: un solo `test_connection()` con el default tardaba **28s** en fallar; con nuestro retry de 3 intentos encima, hasta **~90s** antes de reportar "no se pudo conectar" — inaceptable en vivo. Bajamos `retry_max_times` a 2 (`config/settings.py`), lo que baja el peor caso medido a **~15s**. Este hallazgo salió de escribir `tests/test_integration.py` y correrlo de verdad contra un endpoint inexistente, no de leer el código — es exactamente el tipo de bug que un test 100% mockeado no puede atrapar.
-- **Tests**: 41 unitarios (100% mocks, corren siempre) + 4 de integración (`tests/test_integration.py`, marcados `@pytest.mark.integration`, se saltan por defecto — requieren `MAJESTIC_RUN_INTEGRATION_TESTS=1` y una instancia real). `.github/workflows/ci.yml` corre `pytest -m "not integration"` y valida que la imagen Docker construye en cada push. Los de integración cubren, contra DataHub real: el ciclo write/read de memoria, que `find_previous_diagnosis` encuentra lo que se acaba de escribir (valida en runtime si Plan A funciona o si hizo falta Plan B), y que diagnosticar el grafo sembrado por `seed_demo_data.py` encuentra la causa raíz en B.
+- **Tests**: 46 unitarios (100% mocks, corren siempre) + 4 de integración (`tests/test_integration.py`, marcados `@pytest.mark.integration`, se saltan por defecto — requieren `MAJESTIC_RUN_INTEGRATION_TESTS=1` y una instancia real). `.github/workflows/ci.yml` corre `pytest -m "not integration"` y valida que la imagen Docker construye en cada push. Los de integración cubren, contra DataHub real: el ciclo write/read de memoria, que `find_previous_diagnosis` encuentra lo que se acaba de escribir (valida en runtime si Plan A funciona o si hizo falta Plan B), y que diagnosticar el grafo sembrado por `seed_demo_data.py` encuentra la causa raíz en B.
 - **`_EVIDENCE_WEIGHTS` (en `src/core/diagnoser.py`) es un ranking razonado, no una calibración estadística — a propósito.** No existe un dataset de incidentes reales resueltos contra el cual ajustar `incident_tag=0.9 > schema_change=0.7 > stale_data=0.5 > unowned=0.3`. Lo defendible es el *orden*: especificidad y fuerza causal de la señal (una etiqueta puesta por un humano dice más que la mera ausencia de owner). Los valores absolutos son arbitrarios dentro de ese orden. Si un jurado pregunta "¿por qué 0.75 y no 0.9?", la respuesta honesta es esa — no fingir una precisión que no se midió, mismo criterio que el proyecto ya aplica para no inventar "80% de probabilidad de fallo en 48h" sin datos históricos (ver `proyecto-majestic.md`).
 - **`--explain` no llama a ningún LLM todavía, a propósito.** `src/core/narrator.py` tiene la interfaz lista (`explain(report) -> str`) pero hoy es una plantilla determinística sobre la `causal_chain` ya extraída — sin API key, sin costo, sin un nuevo punto de falla de red en la demo. La pregunta de un *Agent Hackathon* ("¿dónde está el agente/LLM?") tiene una respuesta a propósito: el razonamiento sobre el grafo (qué es evidencia, qué es la causa raíz) es 100% determinístico y trazable — eso no se delega a un LLM ni ahora ni si se agrega uno después. Si en algún momento se elige un proveedor, el lugar exacto para enchufarlo es el cuerpo de `explain()`; la firma no cambia, así que no hay que tocar `agent.py` ni `main.py`.
 

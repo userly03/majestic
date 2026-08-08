@@ -1,0 +1,7 @@
+{
+  "source_urn": "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)",
+  "affected_datasets": 1,
+  "affected_dashboards": 1,
+  "affected_owners": [],
+  "risk_level": "high"
+}

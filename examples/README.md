@@ -2,62 +2,58 @@
 
 El checklist de submission de Devpost pide `examples/` con **outputs reales**:
 un diagnóstico generado de verdad y una captura de la structured property
-en la UI de DataHub. Esta carpeta todavía no los tiene — no se pueden
-generar sin una instancia de DataHub corriendo, y este proyecto se toma en
-serio no inventar datos que parezcan medidos (ver "Predicción de fallos
-futuros" en `proyecto-majestic.md`, la misma lógica aplica acá).
+en la UI de DataHub. Estos archivos **todavía no son eso** — son un paso
+intermedio honesto, no una simulación de "output real".
 
-## Qué falta agregar aquí antes de la submission
+## Qué son estos archivos (y qué NO son)
 
-1. **`diagnosis_output.json`** — resultado real de:
+`diagnosis_output.json`, `impact_output.json`, `explain_output.txt` y
+`memory_reuse_output.json` fueron generados por
+[`scripts/generate_example_outputs.py`](../scripts/generate_example_outputs.py),
+que corre el **código real de producción** —`MajesticAgent`,
+`ImpactSimulator`, `DiagnosisWriter`, `narrator.explain`, los mismos
+`src/*` que usa `main.py`, sin reimplementar ni simplificar nada— contra
+un grafo falso en memoria (`FakeDataHub` en ese mismo script) que imita la
+forma de las respuestas de `DataHubGraph`.
+
+Esto es **mejor que un JSON escrito a mano** (que se desincroniza del
+código real en cuanto algo cambia) pero **no reemplaza correr esto contra
+una instancia de DataHub real**. El propio proyecto se toma en serio no
+presentar como medido algo que no lo es (ver "Predicción de fallos
+futuros" en `proyecto-majestic.md`) — por eso esta distinción está escrita
+así de explícita, no escondida en un comentario.
+
+## Qué falta agregar acá antes de la submission
+
+1. **Regenerar estos 4 archivos contra DataHub real:**
    ```bash
-   python3 main.py diagnose "<urn>" --write
+   datahub docker quickstart
+   python3 main.py doctor
+   python3 scripts/seed_demo_data.py
+   python3 main.py diagnose "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)" --write --explain
+   python3 main.py impact "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)"
    ```
-   sobre un dataset con un problema real o simulado en un datapack de DataHub.
+   y reemplazar los `.json`/`.txt` de esta carpeta con esos outputs.
 
 2. **`structured_property_screenshot.png`** — captura de la UI de DataHub
-   mostrando las structured properties `majestic.*` ya escritas sobre esa
+   mostrando las structured properties `majestic.*` ya escritas sobre la
    entidad (Settings → Structured Properties, o la pestaña de properties
-   del dataset).
+   del dataset). Esto el script no lo puede generar bajo ninguna
+   circunstancia — es la única pieza que requiere sí o sí una instancia
+   real y una captura manual.
 
-3. (Opcional pero recomendable) **`memory_reuse_output.json`** — resultado
-   de correr `diagnose` sobre una *segunda* entidad con la misma firma de
-   patrón, mostrando el mensaje "♻️ Ya existe un diagnóstico con esta firma
-   de patrón en otra entidad" — es la prueba de que la Fase 3 (memoria)
-   funciona de verdad, no solo que persiste datos.
+3. **`memory_reuse_output.json` real** — correr `diagnose` sobre una
+   *segunda* entidad con la misma firma de patrón (`seed_demo_data.py` no
+   crea esta segunda entidad; `generate_example_outputs.py` sí, solo para
+   este propósito — replicar ese mismo patrón contra datos reales, o
+   sembrar manualmente una segunda entidad con la misma estructura).
 
-## Formato esperado (ejemplo sintético, no un diagnóstico real)
+## Cómo regenerar la versión "código real + grafo falso" mientras tanto
 
-Para referencia de formato mientras no hay una instancia real conectada,
-así se ve la salida de `diagnose` (generada con los mismos datos sintéticos
-que usan los tests en `tests/test_agent.py`, **no** proviene de DataHub):
-
-```json
-{
-  "target_urn": "urn:li:dataset:(urn:li:dataPlatform:hive,sales_report,PROD)",
-  "upstream_count": 2,
-  "downstream_count": 1,
-  "root_cause_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing_raw,PROD)",
-  "reason": "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing_raw,PROD) (hop 2): schema modificado hace 3.2h (umbral 24h)",
-  "causal_chain": [
-    {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:hive,marketing_etl,PROD)",
-      "hop": 1,
-      "evidence_type": "unowned",
-      "evidence": "dataset sin owner asignado",
-      "weight": 0.3
-    },
-    {
-      "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,marketing_raw,PROD)",
-      "hop": 2,
-      "evidence_type": "schema_change",
-      "evidence": "schema modificado hace 3.2h (umbral 24h)",
-      "weight": 0.7
-    }
-  ],
-  "confidence": 0.75,
-  "pattern_signature": "schema_change:2:2:1"
-}
+```bash
+python3 scripts/generate_example_outputs.py
 ```
 
-Reemplazar este bloque (o borrarlo) una vez exista un output real.
+Reescribe los 4 archivos de esta carpeta. Útil para mantenerlos
+sincronizados con el código mientras no hay una instancia real disponible
+— pero no es un sustituto del paso 1 de arriba antes de grabar el video.

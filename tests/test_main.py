@@ -1,4 +1,7 @@
+import logging
+import sys
 from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import requests
 
@@ -42,3 +45,24 @@ def test_generic_exception_falls_back_to_type_and_message():
     msg = main._human_error(ValueError("algo raro"))
     assert "ValueError" in msg
     assert "algo raro" in msg
+
+
+def _run_main_with_args(argv):
+    fake_client = SimpleNamespace(is_connected=False, graph=None)
+    with patch.object(sys, "argv", ["main.py"] + argv), patch.object(
+        main, "DataHubClient", return_value=fake_client
+    ), patch("main.logging.basicConfig") as mock_basic_config, patch(
+        "main.sys.exit"
+    ):
+        main.main()
+    return mock_basic_config
+
+
+def test_quiet_flag_sets_warning_level():
+    mock_basic_config = _run_main_with_args(["--quiet", "doctor"])
+    assert mock_basic_config.call_args.kwargs["level"] == logging.WARNING
+
+
+def test_without_quiet_flag_sets_info_level():
+    mock_basic_config = _run_main_with_args(["doctor"])
+    assert mock_basic_config.call_args.kwargs["level"] == logging.INFO

@@ -1,0 +1,25 @@
+# Un solo comando para correr Majestic en contenedor, apuntando a un
+# DataHub ya levantado con `datahub docker quickstart` (este compose NO
+# reimplementa el stack de DataHub — GMS, Elasticsearch, Kafka, MySQL —
+# eso ya lo maneja la CLI de datahub, y duplicarlo acá sería frágil y se
+# desincroniza con cada versión nueva de DataHub).
+#
+# Prerrequisitos:
+#   1. datahub docker quickstart          (deja GMS escuchando en :8080)
+#   2. cp .env.example .env               (y editarlo si hace falta)
+#
+# Uso:
+#   docker compose up                                    # corre spike_test.py (valida conexión)
+#   docker compose run --rm majestic python main.py doctor
+#   docker compose run --rm majestic python main.py diagnose "<urn>" --explain
+#   docker compose run --rm majestic python scripts/seed_demo_data.py
+
+services:
+  majestic:
+    build: .
+    env_file:
+      - .env
+    # network_mode: host es la forma más simple de llegar al GMS de
+    # `datahub docker quickstart` en localhost:8080 sin tener que
+    # averiguar el nombre de la red Docker interna que arma esa CLI.
+    network_mode: host
