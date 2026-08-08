@@ -24,6 +24,10 @@ from datahub.metadata.schema_classes import (
 )
 
 from config.settings import (
+    EVIDENCE_WEIGHT_INCIDENT_TAG,
+    EVIDENCE_WEIGHT_SCHEMA_CHANGE,
+    EVIDENCE_WEIGHT_STALE_DATA,
+    EVIDENCE_WEIGHT_UNOWNED,
     FRESHNESS_THRESHOLD_HOURS,
     INCIDENT_TAG_KEYWORDS,
     MAX_CAUSAL_LINKS,
@@ -58,14 +62,16 @@ logger = logging.getLogger(__name__)
 #                          pipeline por sí solo, solo dificulta escalar
 #                          cuando algo más ya se rompió.
 #
-# Los valores absolutos (0.9/0.7/0.5/0.3) son arbitrarios dentro de ese
-# orden — ajustarlos requiere datos reales de incidentes, no otra pasada
-# de código. Ver "Notas técnicas" en README.md.
+# Los valores absolutos por defecto (0.9/0.7/0.5/0.3) no están calibrados
+# contra un dataset de incidentes reales — por eso son configurables vía
+# config/settings.py (MAJESTIC_EVIDENCE_WEIGHT_*), no constantes fijas acá.
+# Un equipo con historial real de incidentes puede recalibrarlos sin tocar
+# este archivo. Ver "Notas técnicas" en README.md.
 _EVIDENCE_WEIGHTS = {
-    "incident_tag": 0.9,
-    "schema_change": 0.7,
-    "stale_data": 0.5,
-    "unowned": 0.3,
+    "incident_tag": EVIDENCE_WEIGHT_INCIDENT_TAG,
+    "schema_change": EVIDENCE_WEIGHT_SCHEMA_CHANGE,
+    "stale_data": EVIDENCE_WEIGHT_STALE_DATA,
+    "unowned": EVIDENCE_WEIGHT_UNOWNED,
 }
 
 

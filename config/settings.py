@@ -55,6 +55,34 @@ MAX_CAUSAL_LINKS = int(os.getenv("MAJESTIC_MAX_CAUSAL_LINKS", "3"))
 # datos reales de incidentes una vez el agente esté en uso.
 FRESHNESS_THRESHOLD_HOURS = int(os.getenv("MAJESTIC_FRESHNESS_THRESHOLD_HOURS", "24"))
 
+# Peso relativo de cada tipo de evidencia (ver el razonamiento completo en
+# src/core/diagnoser.py, junto a _EVIDENCE_WEIGHTS). El ORDEN por defecto
+# (incident_tag > schema_change > stale_data > unowned) está pensado para
+# ser el correcto en la mayoría de los casos; los valores absolutos no
+# están calibrados contra un dataset de incidentes reales — por eso son
+# configurables acá, no una constante enterrada en el código. Un equipo
+# que sí tenga ese historial puede recalibrarlos sin tocar diagnoser.py.
+EVIDENCE_WEIGHT_INCIDENT_TAG = float(os.getenv("MAJESTIC_EVIDENCE_WEIGHT_INCIDENT_TAG", "0.9"))
+EVIDENCE_WEIGHT_SCHEMA_CHANGE = float(os.getenv("MAJESTIC_EVIDENCE_WEIGHT_SCHEMA_CHANGE", "0.7"))
+EVIDENCE_WEIGHT_STALE_DATA = float(os.getenv("MAJESTIC_EVIDENCE_WEIGHT_STALE_DATA", "0.5"))
+EVIDENCE_WEIGHT_UNOWNED = float(os.getenv("MAJESTIC_EVIDENCE_WEIGHT_UNOWNED", "0.3"))
+
 # Subcadenas (case-insensitive) que, si aparecen en un tag del dataset,
 # se tratan como evidencia directa de incidente conocido.
 INCIDENT_TAG_KEYWORDS = ["error", "broken", "incident", "deprecated", "anomaly"]
+
+# --- check-change (RiskAssessor) ---
+# risk_score >= este umbral => "check-change" bloquea (exit 1) en vez de
+# aprobar. Heurística, igual que _EVIDENCE_WEIGHTS en diagnoser.py: el
+# valor por defecto no está calibrado contra incidentes reales, pero SÍ es
+# configurable (a diferencia de _EVIDENCE_WEIGHTS, que son constantes de
+# código) porque acá el costo de ajustarlo por organización es legítimo:
+# qué tan tolerante al riesgo sea un equipo es una decisión de negocio, no
+# una propiedad del algoritmo.
+CHECK_CHANGE_RISK_THRESHOLD = float(os.getenv("MAJESTIC_CHECK_CHANGE_RISK_THRESHOLD", "0.5"))
+
+# --- Listener de incidentes (src/events/listener.py) ---
+# Segundos entre cada polling a DataHub buscando datasets con tag de
+# incidente nuevos. 5s por defecto: suficientemente rápido para una demo
+# en vivo, sin martillar el GMS en un uso real prolongado.
+LISTENER_POLL_INTERVAL_SECONDS = float(os.getenv("MAJESTIC_LISTENER_POLL_INTERVAL_SECONDS", "5"))

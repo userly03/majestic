@@ -18,6 +18,7 @@ import requests
 from src.core.agent import MajesticAgent
 from src.core.narrator import explain
 from src.graph.client import DataHubClient
+from src.impact.risk_assessor import RiskAssessor
 from src.impact.simulator import ImpactSimulator
 from src.memory.writer import DiagnosisWriter
 
@@ -66,6 +67,35 @@ def cmd_impact(client: DataHubClient, urn: str) -> None:
     impact_report = simulator.simulate(urn)
     print("\n⚡ Simulación de impacto:")
     print(json.dumps(impact_report, indent=2, ensure_ascii=False))
+
+
+def cmd_check_change(client: DataHubClient, urn: str) -> None:
+    """
+    Evalúa si un cambio sobre `urn` es seguro de aplicar, combinando el
+    blast radius (ImpactSimulator, sin modificar) con qué tan huérfano
+    está el downstream (RiskAssessor). Termina con exit code 1 si el
+    riesgo supera el umbral configurado (bloqueado) o 0 si lo aprueba —
+    pensado para usarse como gate en un pipeline de CI/CD, no solo para
+    lectura humana.
+    """
+    simulator = ImpactSimulator(client)
+    assessor = RiskAssessor(client)
+
+    impact_report = simulator.simulate(urn)
+    assessment = assessor.assess(urn, impact_report)
+
+    print(f"\n🔍 check-change — {urn}")
+    print(f"   Datasets afectados downstream:   {impact_report['affected_datasets']}")
+    print(f"   Dashboards afectados downstream: {impact_report['affected_dashboards']}")
+    print(f"   Salud del downstream (con owner): {assessment['health_score'] * 100:.0f}%")
+    print(f"   Nivel de riesgo: {assessment['risk_label']} (score {assessment['risk_score']:.2f}, umbral {assessment['threshold']:.2f})")
+
+    if assessment["should_block"]:
+        print("\n🚫 Cambio bloqueado — riesgo alto")
+        sys.exit(1)
+    else:
+        print("\n✅ Cambio seguro")
+        sys.exit(0)
 
 
 def _doctor_check_properties(client: DataHubClient) -> bool:
@@ -245,6 +275,22 @@ def main() -> None:
     impact_parser = subparsers.add_parser("impact", help="Simula el impacto downstream de un cambio.")
     impact_parser.add_argument("urn", help="URN del dataset a modificar.")
 
+    check_change_parser = subparsers.add_parser(
+        "check-change",
+        help="Evalúa si un cambio sobre un dataset es seguro (gate de CI/CD): exit 0 aprueba, exit 1 bloquea.",
+    )
+    check_change_parser.add_argument("--urn", required=True, help="URN del dataset a evaluar.")
+    check_change_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "No tiene efecto hoy — check-change nunca escribe nada en DataHub "
+            "(solo lee lineage y ownership). Se acepta el flag por compatibilidad "
+            "con pipelines de CI que ya lo pasan a otras herramientas; reservado "
+            "para si en el futuro check-change aplica el cambio en vez de solo evaluarlo."
+        ),
+    )
+
     subparsers.add_parser(
         "doctor",
         help="Valida conexión, structured properties y permisos de escritura en un solo comando.",
@@ -271,6 +317,8 @@ def main() -> None:
             cmd_diagnose(client, args.urn, args.write, args.business_context, args.explain)
         elif args.command == "impact":
             cmd_impact(client, args.urn)
+        elif args.command == "check-change":
+            cmd_check_change(client, args.urn)
     except Exception as exc:
         logger.debug("Detalle completo del error", exc_info=True)
         print(f"\n❌ Error: {_human_error(exc)}")

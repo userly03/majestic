@@ -66,3 +66,62 @@ def test_quiet_flag_sets_warning_level():
 def test_without_quiet_flag_sets_info_level():
     mock_basic_config = _run_main_with_args(["doctor"])
     assert mock_basic_config.call_args.kwargs["level"] == logging.INFO
+
+
+def test_check_change_parses_required_urn_flag():
+    # --urn es requerido: sin él, argparse debe fallar (SystemExit) antes
+    # de siquiera intentar conectar a DataHub.
+    import pytest
+
+    with patch.object(sys, "argv", ["main.py", "check-change"]), pytest.raises(SystemExit):
+        main.main()
+
+
+def test_check_change_approves_low_risk_and_exits_zero(connected_client):
+    with patch("main.ImpactSimulator") as MockSimulator, patch(
+        "main.RiskAssessor"
+    ) as MockAssessor, patch("main.sys.exit") as mock_exit:
+        MockSimulator.return_value.simulate.return_value = {
+            "source_urn": "A",
+            "affected_datasets": 0,
+            "affected_dashboards": 0,
+            "affected_owners": [],
+            "risk_level": "none",
+        }
+        MockAssessor.return_value.assess.return_value = {
+            "urn": "A",
+            "health_score": 1.0,
+            "risk_score": 0.0,
+            "risk_label": "BAJO",
+            "should_block": False,
+            "threshold": 0.5,
+        }
+
+        main.cmd_check_change(connected_client, "A")
+
+        mock_exit.assert_called_once_with(0)
+
+
+def test_check_change_blocks_high_risk_and_exits_one(connected_client):
+    with patch("main.ImpactSimulator") as MockSimulator, patch(
+        "main.RiskAssessor"
+    ) as MockAssessor, patch("main.sys.exit") as mock_exit:
+        MockSimulator.return_value.simulate.return_value = {
+            "source_urn": "A",
+            "affected_datasets": 5,
+            "affected_dashboards": 2,
+            "affected_owners": [],
+            "risk_level": "high",
+        }
+        MockAssessor.return_value.assess.return_value = {
+            "urn": "A",
+            "health_score": 0.0,
+            "risk_score": 0.84,
+            "risk_label": "ALTO",
+            "should_block": True,
+            "threshold": 0.5,
+        }
+
+        main.cmd_check_change(connected_client, "A")
+
+        mock_exit.assert_called_once_with(1)
