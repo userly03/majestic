@@ -3,6 +3,14 @@ Spike de validación: confirma el ciclo completo de memoria episódica
 (escritura de structuredProperties + lectura de vuelta) contra una
 instancia real de DataHub, antes de confiar en él para correr el agente.
 
+A diferencia de DiagnosisWriter.write_report() (que traga la excepción y
+devuelve True/False para tener una API limpia), este spike arma el patch
+a mano para poder:
+  1. imprimir el JSON exacto que se va a enviar ANTES de enviarlo, y
+  2. si emit_mcps falla, mostrar el traceback completo — no solo un booleano.
+Es exactamente el tipo de cosa que un spike debe hacer: saltarse la
+abstracción de producción para poder debuggear el mecanismo en crudo.
+
 Requiere que config/agent_memory_property.yaml ya haya sido aplicado:
     datahub properties upsert -f config/agent_memory_property.yaml
 
@@ -13,15 +21,26 @@ Si no se pasa un URN, usa el dataset de muestra que trae
 `datahub docker quickstart` por defecto.
 """
 
+import json
+import logging
 import sys
+import traceback
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-import logging
+from datahub.specific.dataset import DatasetPatchBuilder
 
 from src.graph.client import DataHubClient
-from src.memory.writer import DiagnosisWriter
+from src.memory.writer import (
+    _PROP_BUSINESS_CONTEXT,
+    _PROP_CONFIDENCE,
+    _PROP_DIAGNOSED_AT,
+    _PROP_DIAGNOSIS,
+    _PROP_PATTERN_SIGNATURE,
+    DiagnosisWriter,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +56,30 @@ _FAKE_REPORT = {
 }
 
 
+def _build_patch(urn: str):
+    return (
+        DatasetPatchBuilder(urn)
+        .add_structured_property(_PROP_PATTERN_SIGNATURE, _FAKE_REPORT["pattern_signature"])
+        .add_structured_property(_PROP_DIAGNOSIS, _FAKE_REPORT["reason"])
+        .add_structured_property(_PROP_CONFIDENCE, float(_FAKE_REPORT["confidence"]))
+        .add_structured_property(_PROP_DIAGNOSED_AT, datetime.now(timezone.utc).isoformat())
+        .add_structured_property(_PROP_BUSINESS_CONTEXT, "Escrito por spike_writeback_test.py")
+    )
+
+
+def _print_mcps(mcps) -> None:
+    print("📦 Payload que se va a enviar a DataHub:")
+    for mcp in mcps:
+        print(f"  entityUrn:  {mcp.entityUrn}")
+        print(f"  entityType: {mcp.entityType}")
+        print(f"  aspectName: {mcp.aspectName}")
+        print(f"  changeType: {mcp.changeType}")
+        if mcp.aspect is not None:
+            patch_body = json.loads(mcp.aspect.value)
+            print("  patch:")
+            print("    " + json.dumps(patch_body, indent=2, ensure_ascii=False).replace("\n", "\n    "))
+
+
 def main() -> None:
     urn = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_TEST_URN
     print(f"🚀 Spike write-back sobre: {urn}")
@@ -49,12 +92,21 @@ def main() -> None:
     writer = DiagnosisWriter(client)
 
     print("1/2 — Escribiendo diagnóstico de prueba...")
-    wrote_ok = writer.write_report(
-        urn, _FAKE_REPORT, business_context="Escrito por spike_writeback_test.py"
-    )
-    if not wrote_ok:
-        print("❌ Falló la escritura. Revisa que agent_memory_property.yaml esté aplicado.")
+    mcps = _build_patch(urn).build()
+    _print_mcps(mcps)
+
+    try:
+        client.graph.emit_mcps(mcps)
+    except Exception:
+        print("\n❌ Falló emit_mcps. Traceback completo:\n")
+        traceback.print_exc()
+        print(
+            "\nRevisa: ¿está aplicado config/agent_memory_property.yaml? "
+            "¿el URN existe? ¿el token tiene permiso de escritura?"
+        )
         sys.exit(1)
+
+    print("✅ emit_mcps no lanzó excepción.")
 
     print("2/2 — Leyendo diagnóstico de vuelta...")
     read_back = writer.read_diagnosis(urn)

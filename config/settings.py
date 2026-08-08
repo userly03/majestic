@@ -14,6 +14,13 @@ load_dotenv()
 DATAHUB_GMS_URL = os.getenv("DATAHUB_GMS_URL", "http://localhost:8080")
 DATAHUB_GMS_TOKEN = os.getenv("DATAHUB_GMS_TOKEN")
 
+# Reintentos al establecer conexión (no reintentos por-request; eso ya lo
+# maneja DataHubGraphConfig internamente). Si DataHub "parpadea" al arrancar
+# el agente, esto evita morir en el primer intento.
+CONNECT_RETRY_ATTEMPTS = int(os.getenv("MAJESTIC_CONNECT_RETRY_ATTEMPTS", "3"))
+CONNECT_RETRY_WAIT_MIN_SECONDS = float(os.getenv("MAJESTIC_CONNECT_RETRY_WAIT_MIN", "1"))
+CONNECT_RETRY_WAIT_MAX_SECONDS = float(os.getenv("MAJESTIC_CONNECT_RETRY_WAIT_MAX", "10"))
+
 # --- Traversal de lineage ---
 DEFAULT_MAX_HOPS = int(os.getenv("MAJESTIC_MAX_HOPS", "3"))
 

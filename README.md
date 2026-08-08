@@ -113,6 +113,8 @@ pip install -r requirements.txt
 pytest
 ```
 
+Corre automáticamente en cada push vía `.github/workflows/ci.yml` (24 tests unitarios + build de la imagen Docker).
+
 ## Estado de validación técnica
 
 - [x] Traversal de lineage upstream/downstream vía `DataHubGraph.scroll_lineage` — verificado por introspección directa del SDK instalado (`acryl-datahub==1.7.0`).
@@ -121,6 +123,14 @@ pytest
 - [ ] Búsqueda de diagnósticos previos por firma de patrón (`find_previous_diagnosis`) — el nombre exacto del campo de búsqueda para structured properties en Elasticsearch no está confirmado contra una instancia real; validar antes de la demo.
 
 Ver la sección "Estado de validación técnica" en [`proyecto-majestic.md`](proyecto-majestic.md) para el detalle completo y el razonamiento detrás de cada decisión.
+
+## Notas técnicas (riesgos conocidos)
+
+Transparencia sobre lo que todavía no está probado contra una instancia real, para que nadie lo descubra en vivo durante la demo:
+
+- **`DiagnosisWriter.find_previous_diagnosis` es el punto de mayor riesgo del proyecto.** Busca entidades con la misma firma de patrón usando un filtro de búsqueda (`get_urns_by_filter` con `extraFilters` sobre `structuredProperties.<qualifiedName>`). El *método* del SDK está confirmado por introspección directa contra `acryl-datahub==1.7.0`, pero **el nombre exacto del campo indexado en Elasticsearch para structured properties custom depende de cómo DataHub construye el mapping de búsqueda**, y eso solo se confirma corriéndolo contra una instancia real — no hay forma de validarlo por lectura de código o por tests unitarios con mocks. Si el campo real difiere (por ejemplo, si necesita el URN completo `urn:li:structuredProperty:...` en vez del `qualifiedName` corto, o un sufijo `.keyword`), la función devuelve `None` silenciosamente en vez de fallar con un error. **Se valida en runtime con `scripts/spike_writeback_test.py` antes de la demo**, y si el nombre de campo no es el asumido, es el primer fix a aplicar.
+- **Reintentos de conexión**: `DataHubClient` ahora reintenta la conexión inicial hasta 3 veces con backoff exponencial (`tenacity`) antes de darse por vencido — ver `src/graph/client.py`. Esto cubre que DataHub tarde en levantar o tenga un hiccup momentáneo al arrancar el agente; no reintenta requests individuales una vez conectado (eso ya lo maneja `DataHubGraphConfig` internamente vía sus propios parámetros de retry HTTP).
+- **CI**: `.github/workflows/ci.yml` corre los 24 tests unitarios y valida que la imagen Docker construye en cada push. Los tests son 100% mocks sobre `DataHubClient` — no hay integration tests contra una instancia real de DataHub en el pipeline de CI, justamente porque ese es el paso manual que hace `scripts/spike_writeback_test.py`.
 
 ## Licencia
 
