@@ -58,7 +58,3 @@ FRESHNESS_THRESHOLD_HOURS = int(os.getenv("MAJESTIC_FRESHNESS_THRESHOLD_HOURS", 
 # Subcadenas (case-insensitive) que, si aparecen en un tag del dataset,
 # se tratan como evidencia directa de incidente conocido.
 INCIDENT_TAG_KEYWORDS = ["error", "broken", "incident", "deprecated", "anomaly"]
-
-# --- Memoria episódica (structuredProperties) ---
-# Debe coincidir con el urn definido en agent_memory_property.yaml
-MEMORY_PROPERTY_URN = "urn:li:structuredProperty:majestic.diagnosis"
