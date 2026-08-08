@@ -6,7 +6,7 @@
     "pattern_signature": "incident_tag:1:2:1",
     "reason": "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.marketing_etl,PROD) (hop 1): tag 'urn:li:tag:majestic_demo_incident' coincide con palabra clave de incidente 'incident'",
     "confidence": 0.9,
-    "diagnosed_at": "2026-08-08T05:10:18.061147+00:00",
-    "business_context": "Generado por scripts/generate_example_outputs.py"
+    "diagnosed_at": "2026-08-08T18:52:49.389071+00:00",
+    "business_context": null
   }
 }

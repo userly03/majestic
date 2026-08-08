@@ -2,58 +2,53 @@
 
 El checklist de submission de Devpost pide `examples/` con **outputs reales**:
 un diagnóstico generado de verdad y una captura de la structured property
-en la UI de DataHub. Estos archivos **todavía no son eso** — son un paso
-intermedio honesto, no una simulación de "output real".
+en la UI de DataHub.
 
-## Qué son estos archivos (y qué NO son)
+## Qué son estos archivos
 
 `diagnosis_output.json`, `impact_output.json`, `explain_output.txt` y
-`memory_reuse_output.json` fueron generados por
-[`scripts/generate_example_outputs.py`](../scripts/generate_example_outputs.py),
-que corre el **código real de producción** —`MajesticAgent`,
-`ImpactSimulator`, `DiagnosisWriter`, `narrator.explain`, los mismos
-`src/*` que usa `main.py`, sin reimplementar ni simplificar nada— contra
-un grafo falso en memoria (`FakeDataHub` en ese mismo script) que imita la
-forma de las respuestas de `DataHubGraph`.
+`memory_reuse_output.json` son outputs reales de `main.py` corridos contra
+una instancia real de DataHub (`datahub docker quickstart`), sobre el grafo
+sembrado por `scripts/seed_demo_data.py` (A→B→C, anomalía en B) y una
+segunda entidad con la misma firma de patrón (H→G→F, sembrada reutilizando
+`_seed_second_matching_entity` de `scripts/generate_example_outputs.py`
+contra el cliente real en vez del `FakeDataHub`).
 
-Esto es **mejor que un JSON escrito a mano** (que se desincroniza del
-código real en cuanto algo cambia) pero **no reemplaza correr esto contra
-una instancia de DataHub real**. El propio proyecto se toma en serio no
-presentar como medido algo que no lo es (ver "Predicción de fallos
-futuros" en `proyecto-majestic.md`) — por eso esta distinción está escrita
-así de explícita, no escondida en un comentario.
-
-## Qué falta agregar acá antes de la submission
-
-1. **Regenerar estos 4 archivos contra DataHub real:**
-   ```bash
-   datahub docker quickstart
-   python3 main.py doctor
-   python3 scripts/seed_demo_data.py
-   python3 main.py diagnose "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)" --write --explain
-   python3 main.py impact "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)"
-   ```
-   y reemplazar los `.json`/`.txt` de esta carpeta con esos outputs.
-
-2. **`structured_property_screenshot.png`** — captura de la UI de DataHub
-   mostrando las structured properties `majestic.*` ya escritas sobre la
-   entidad (Settings → Structured Properties, o la pestaña de properties
-   del dataset). Esto el script no lo puede generar bajo ninguna
-   circunstancia — es la única pieza que requiere sí o sí una instancia
-   real y una captura manual.
-
-3. **`memory_reuse_output.json` real** — correr `diagnose` sobre una
-   *segunda* entidad con la misma firma de patrón (`seed_demo_data.py` no
-   crea esta segunda entidad; `generate_example_outputs.py` sí, solo para
-   este propósito — replicar ese mismo patrón contra datos reales, o
-   sembrar manualmente una segunda entidad con la misma estructura).
-
-## Cómo regenerar la versión "código real + grafo falso" mientras tanto
+Comandos exactos usados:
 
 ```bash
-python3 scripts/generate_example_outputs.py
+datahub docker quickstart
+python3 main.py doctor
+python3 scripts/seed_demo_data.py
+python3 main.py diagnose "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)" --write --explain
+python3 main.py impact "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)"
+# + segunda entidad (H→G→F) para el reuso de memoria, luego:
+python3 main.py diagnose "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.finance_report,PROD)"
 ```
 
-Reescribe los 4 archivos de esta carpeta. Útil para mantenerlos
-sincronizados con el código mientras no hay una instancia real disponible
-— pero no es un sustituto del paso 1 de arriba antes de grabar el video.
+Validar esto contra una instancia real (en vez de solo el `FakeDataHub` de
+`generate_example_outputs.py`) encontró un bug real: `_seed_second_matching_entity`
+intentaba emitir el aspecto `globalTags` sobre una entidad `tag` (inválido —
+DataHub lo rechazó con 422; el `FakeDataHub` no valida compatibilidad
+aspecto/entidad, así que nunca lo hubiera atrapado). Ya está corregido en
+`scripts/generate_example_outputs.py` (usa `TagPropertiesClass`, como hace
+correctamente `seed_demo_data.py`).
+
+## Qué falta agregar acá
+
+1. **`structured_property_screenshot.png`** — captura de la UI de DataHub
+   mostrando las structured properties `majestic.*` ya escritas sobre la
+   entidad (Settings → Structured Properties, o la pestaña de properties
+   del dataset). Esto ningún script lo puede generar — es la única pieza
+   que requiere una captura manual.
+
+## Cómo regenerar
+
+Contra una instancia real ya levantada, repetir los comandos de arriba y
+reemplazar los `.json`/`.txt` de esta carpeta con esos outputs.
+
+Si no hay una instancia real disponible, `scripts/generate_example_outputs.py`
+regenera una versión equivalente corriendo el mismo código de producción
+contra un grafo falso en memoria (`FakeDataHub`) — útil para mantener los
+archivos sincronizados con el código mientras tanto, pero no sustituye
+correr esto contra DataHub de verdad antes de grabar el video.

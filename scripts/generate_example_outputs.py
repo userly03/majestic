@@ -41,6 +41,7 @@ from datahub.metadata.schema_classes import (
     StructuredPropertiesClass,
     StructuredPropertyValueAssignmentClass,
     TagAssociationClass,
+    TagPropertiesClass,
     UpstreamClass,
     UpstreamLineageClass,
 )
@@ -161,8 +162,11 @@ def _seed_second_matching_entity(client) -> None:
         ]),
     ))
     client.graph.emit_mcp(MetadataChangeProposalWrapper(
-        entityUrn=TAG2_URN, aspect=GlobalTagsClass(tags=[]),
-    ))  # placeholder, se pisa abajo con el TagAssociation real
+        entityUrn=TAG2_URN, aspect=TagPropertiesClass(
+            name="Majestic Demo: Incidente 2",
+            description="Segundo tag sintético (entidad H→G→F) para el ejemplo de reuso de memoria.",
+        ),
+    ))
     client.graph.emit_mcp(MetadataChangeProposalWrapper(
         entityUrn=URN_G, aspect=GlobalTagsClass(tags=[TagAssociationClass(tag=TAG2_URN)]),
     ))
