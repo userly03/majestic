@@ -1,0 +1,9 @@
+# Dependencias de desarrollo/demo — no necesarias para correr la CLI en
+# producción (por eso la imagen Docker instala solo requirements.txt).
+-r requirements.txt
+
+pytest
+
+# Solo para src/mcp_server.py — el adaptador MCP es opcional, no parte
+# del pipeline diagnose/impact de la CLI.
+mcp

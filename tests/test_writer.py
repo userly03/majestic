@@ -5,13 +5,38 @@ from datahub.metadata.schema_classes import (
     StructuredPropertyValueAssignmentClass,
 )
 
-from src.memory.writer import DiagnosisWriter
+from src.memory.writer import DiagnosisWriter, _sanitize_urn_lookalikes
 
 _REPORT = {
     "pattern_signature": "stale_data:2:3:1",
     "reason": "algo se rompió",
     "confidence": 0.55,
 }
+
+
+def test_sanitize_urn_lookalikes_breaks_urn_prefix():
+    text = "urn:li:dataset:(urn:li:dataPlatform:hive,x.y,PROD) (hop 1): sin owner"
+
+    sanitized = _sanitize_urn_lookalikes(text)
+
+    assert "urn:li:" not in sanitized
+    assert "urn:​li:" in sanitized
+    # Visualmente idéntico (el espacio de ancho cero no se ve al imprimir).
+    assert sanitized.replace("​", "") == text
+
+
+def test_sanitize_urn_lookalikes_leaves_text_without_urns_untouched():
+    text = "dataset sin owner asignado, sin relación con ningún URN"
+
+    assert _sanitize_urn_lookalikes(text) == text
+
+
+def test_sanitize_urn_lookalikes_handles_multiple_occurrences():
+    text = "urn:li:dataset:(a) heredó de urn:li:dataset:(b)"
+
+    sanitized = _sanitize_urn_lookalikes(text)
+
+    assert sanitized.count("urn:​li:") == 2
 
 
 def test_write_report_success(connected_client):

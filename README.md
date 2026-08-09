@@ -17,7 +17,7 @@ Majestic es un agente que lee el grafo de linaje de DataHub, cruza señales de d
 
 ```
 Majestic/
-├── main.py                      # entrypoint CLI (diagnose / impact / doctor)
+├── main.py                      # entrypoint CLI (diagnose / impact / check-change / doctor)
 ├── config/
 │   ├── settings.py               # configuración centralizada (URL/token DataHub, umbrales)
 │   └── agent_memory_property.yaml  # definición de las structured properties de memoria
@@ -27,28 +27,38 @@ Majestic/
 │   │   └── traversal.py           # LineageTraversal — BFS upstream/downstream
 │   ├── core/
 │   │   ├── agent.py               # MajesticAgent — orquesta las 3 fases
-│   │   └── diagnoser.py           # RootCauseDiagnoser — evidencia + cadena causal
+│   │   ├── diagnoser.py           # RootCauseDiagnoser — evidencia + cadena causal + lag-aware
+│   │   └── narrator.py            # explain() — síntesis en lenguaje natural del diagnóstico
 │   ├── memory/
 │   │   └── writer.py              # DiagnosisWriter — write-back y lectura de memoria
-│   └── impact/
-│       └── simulator.py           # ImpactSimulator — impacto downstream de un cambio
+│   ├── impact/
+│   │   ├── simulator.py           # ImpactSimulator — impacto downstream de un cambio
+│   │   └── risk_assessor.py       # RiskAssessor — blast radius + orfandad → gate de CI/CD
+│   ├── events/
+│   │   └── listener.py            # IncidentListener — polling que dispara diagnose automático
+│   └── mcp_server.py              # servidor MCP — expone diagnose/impact a otros agentes
 ├── scripts/
 │   ├── spike_test.py              # valida solo la conexión a DataHub
 │   ├── seed_demo_data.py          # siembra un grafo sintético con anomalía garantizada para la demo
+│   ├── seed_lag_aware_demo.py     # siembra un escenario fan-in para exhibir el decaimiento por antigüedad
 │   ├── generate_example_outputs.py  # regenera examples/ corriendo el agente real (no una instancia real de DataHub)
 │   └── spike_writeback_test.py   # valida el ciclo completo de memoria, con el JSON exacto que se envía
 ├── docker-compose.yml            # un comando para correr todo en contenedor
-├── tests/                        # 46 unitarios (mocks) + 4 de integración (opt-in, DataHub real)
+├── tests/                        # 79 unitarios (mocks) + 4 de integración (opt-in, DataHub real)
 ├── examples/                     # outputs de ejemplo — ver examples/README.md sobre qué tan "reales" son hoy
+├── AUDIT_REPORT.md                # autoauditoría sin filtro contra los criterios del jurado
 └── docs/
     ├── PROPOSAL.md                # análisis técnico y bitácora de las 4 rondas de blindaje
+    ├── LAG_AWARE_DIAGNOSIS.md     # diseño y validación en vivo del mecanismo lag-aware
     └── DEMO_SCRIPT.md             # guion cronometrado (≤3:00) para grabar el video de submission
 ```
 
 - `src/graph`: cliente y traversal sobre DataHub (GMS).
-- `src/core`: orquestación del agente y razonamiento de causa raíz (Fase 1 y 2).
+- `src/core`: orquestación del agente y razonamiento de causa raíz (Fase 1 y 2), más la síntesis narrativa opcional.
 - `src/memory`: lectura/escritura de la memoria episódica como structured properties (Fase 3).
-- `src/impact`: simulador de impacto downstream (bonus).
+- `src/impact`: simulador de impacto downstream y el gate de riesgo que lo consume (`check-change`).
+- `src/events`: listener de incidentes por polling (dispara `diagnose` sin que nadie lo pida).
+- `src/mcp_server.py`: mismo core, expuesto como herramientas MCP en vez de CLI — ver "Servidor MCP" más abajo.
 
 ## ⚙️ Instalación y ejecución
 
@@ -63,7 +73,8 @@ datahub docker quickstart
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -r requirements.txt
+pip install -r requirements.txt          # solo lo que necesita la CLI en producción
+# pip install -r requirements-dev.txt    # + pytest y el SDK de MCP, para desarrollo/demo
 ```
 
 ### 3. Configurar variables de entorno
@@ -136,11 +147,23 @@ docker run --rm --network host --env-file .env majestic
 docker run --rm --network host --env-file .env majestic python main.py diagnose "<urn>"
 ```
 
+## 🔌 Servidor MCP
+
+`main.py` no es el único frontend sobre `MajesticAgent`/`ImpactSimulator` — `src/mcp_server.py` expone el mismo core como dos herramientas MCP (`majestic_diagnose`, `majestic_impact`) para que otros agentes las invoquen directamente, sin pasar por la CLI:
+
+```bash
+pip install -r requirements-dev.txt   # instala el SDK de MCP
+python3 -m src.mcp_server              # sirve por stdio (el transporte que usan
+                                         # Claude Desktop y la mayoría de clientes MCP)
+```
+
+No es una reimplementación: es un adaptador nuevo (~100 líneas) sobre las mismas clases que ya usa `main.py`, sin tocar `agent.py`/`simulator.py`. Probado de punta a punta contra el DataHub real que corrió esta sesión (`majestic_diagnose`/`majestic_impact` invocados directamente, mismo resultado que la CLI).
+
 ## 🧪 Tests
 
 ```bash
-pip install -r requirements.txt
-pytest                                          # 46 tests unitarios (mocks, siempre corren)
+pip install -r requirements-dev.txt
+pytest                                          # 79 tests unitarios (mocks, siempre corren)
 MAJESTIC_RUN_INTEGRATION_TESTS=1 pytest -m integration   # 4 tests contra DataHub real (ver Notas técnicas)
 ```
 
@@ -162,9 +185,11 @@ Ver la sección "Estado de validación técnica" en [`proyecto-majestic.md`](pro
 - **Bug real de la UI de DataHub, encontrado validando en vivo y neutralizado en nuestro código.** La UI de DataHub intenta resolver como referencia a otra entidad (`valueEntities`) cualquier valor de structured property que *contenga* algo con forma de URN (`urn:li:...(...)`) — y ese resolver tiene un bug propio de DataHub que rompe la página completa (`IllegalArgumentException: No enum constant ...FabricType.$UNKNOWN`). El `reason` que arma `RootCauseDiagnoser` siempre embebe el URN de la entidad causal en la oración, así que cualquier diagnóstico real lo disparaba. No es un bug nuestro, pero es nuestro texto el que lo activaba — `src/memory/writer.py::_sanitize_urn_lookalikes` lo neutraliza insertando un espacio de ancho cero dentro de `"urn:li:"` antes de persistir el valor (invisible al leerlo, rompe la detección de la UI). Confirmado antes/después contra la API real de GMS.
 - **`DiagnosisWriter.find_previous_diagnosis` tiene un plan B, y ambos caminos ya se ejercitaron contra una instancia real.** Busca entidades con la misma firma de patrón con un filtro estructurado (`get_urns_by_filter` con `extraFilters` sobre `structuredProperties.<qualifiedName>` — Plan A). Si Plan A lanza una excepción, o "funciona" pero no devuelve nada, `_search_by_pattern_signature` cae automáticamente a una búsqueda de texto libre (`query=`, Plan B) que no depende de ese nombre de campo — y cualquier resultado de Plan B se re-valida contra la firma exacta antes de reutilizarlo, para no dar por buena una coincidencia parcial de texto libre. Ninguno de los dos planes puede tirar abajo `diagnose`: si ambos fallan, `find_previous_diagnosis` devuelve `None` (equivalente a "no se encontró memoria previa"), nunca una excepción.
 - **Reintentos de conexión, con un hallazgo real detrás.** `DataHubClient` reintenta la conexión inicial hasta 3 veces con backoff exponencial (`tenacity`) antes de darse por vencido. Pero el SDK *ya* reintenta cada request HTTP internamente (`DatahubClientConfig.retry_max_times`, default 4, con backoff propio) — y ese default retría incluso "connection refused", no solo 5xx. Medido contra un GMS caído: un solo `test_connection()` con el default tardaba **28s** en fallar; con nuestro retry de 3 intentos encima, hasta **~90s** antes de reportar "no se pudo conectar" — inaceptable en vivo. Bajamos `retry_max_times` a 2 (`config/settings.py`), lo que baja el peor caso medido a **~15s**. Este hallazgo salió de escribir `tests/test_integration.py` y correrlo de verdad contra un endpoint inexistente, no de leer el código — es exactamente el tipo de bug que un test 100% mockeado no puede atrapar.
-- **Tests**: 46 unitarios (100% mocks, corren siempre) + 4 de integración (`tests/test_integration.py`, marcados `@pytest.mark.integration`, se saltan por defecto — requieren `MAJESTIC_RUN_INTEGRATION_TESTS=1` y una instancia real). `.github/workflows/ci.yml` corre `pytest -m "not integration"` y valida que la imagen Docker construye en cada push. Los de integración cubren, contra DataHub real: el ciclo write/read de memoria, que `find_previous_diagnosis` encuentra lo que se acaba de escribir (valida en runtime si Plan A funciona o si hizo falta Plan B), y que diagnosticar el grafo sembrado por `seed_demo_data.py` encuentra la causa raíz en B.
+- **Tests**: 79 unitarios (100% mocks, corren siempre) + 4 de integración (`tests/test_integration.py`, marcados `@pytest.mark.integration`, se saltan por defecto — requieren `MAJESTIC_RUN_INTEGRATION_TESTS=1` y una instancia real). `.github/workflows/ci.yml` corre `pytest -m "not integration"` y valida que la imagen Docker construye en cada push. Los de integración cubren, contra DataHub real: el ciclo write/read de memoria, que `find_previous_diagnosis` encuentra lo que se acaba de escribir (valida en runtime si Plan A funciona o si hizo falta Plan B), y que diagnosticar el grafo sembrado por `seed_demo_data.py` encuentra la causa raíz en B.
 - **Los pesos de evidencia son configurables y auditables, no una caja negra.** El *orden* relativo (`incident_tag > schema_change > stale_data > unowned`) refleja especificidad y fuerza causal de cada señal (una etiqueta puesta por un humano dice más que la mera ausencia de owner). Los valores por defecto (0.9/0.7/0.5/0.3, en `config/settings.py` vía `MAJESTIC_EVIDENCE_WEIGHT_*`) no están calibrados contra un dataset de incidentes reales — pero, a diferencia de una constante enterrada en el código, cualquier equipo con ese historial puede recalibrarlos sin tocar `diagnoser.py`. Si un jurado pregunta "¿por qué 0.75 y no 0.9?", la respuesta es: ese es exactamente el número que ustedes pueden cambiar una vez que tengan datos — el proyecto no finge una precisión que no midió, pero tampoco la deja fuera de alcance.
 - **El razonamiento causal es 100% determinístico y trazable — decisión de arquitectura, no una feature pendiente.** `RootCauseDiagnoser` nunca alucina un eslabón: cada uno en `causal_chain` está respaldado por un dato concreto leído del grafo (tag, schema, freshness, ownership), y si un salto no tiene evidencia, la cadena se corta ahí en vez de rellenarse con una suposición. `--explain` (`src/core/narrator.py`) redacta esa cadena ya verificada en una plantilla determinística — sin llamar a ningún proveedor externo, sin API key, sin un punto de falla de red nuevo en producción. La pregunta de un *Agent Hackathon* ("¿dónde está el agente/LLM?") tiene una respuesta concreta: separar "qué es evidencia" (el grafo, nunca un LLM) de "cómo se redacta" (donde un LLM sí podría enchufarse después, sin poder inventar un eslabón que el grafo no respalde) es la garantía de cero alucinación del sistema, no un hueco a tapar. La firma de `explain(report) -> str` ya está lista para ese día sin tocar `agent.py` ni `main.py`.
+- **La cadena causal agrupa por profundidad (hop), no por camino específico desde el target — limitación conocida, no un bug.** `RootCauseDiagnoser.analyze()` busca evidencia en *cualquier* nodo a una profundidad dada (`nodes_by_hop`), no en un único camino de lineage desde el target. Si hay dos ramas de lineage distintas, la evidencia de la rama A a hop 2 puede aparecer en la cadena aunque el nodo relevante para el target real esté en la rama B. Es una simplificación razonable para el alcance de un hackathon — el escenario típico (una sola cadena lineal o un fan-in simple, como los que siembran `scripts/seed_demo_data.py` y `scripts/seed_lag_aware_demo.py`) no la ejercita — pero un grafo con ramas anchas y evidencia dispersa sí la notaría. Documentado acá para que no sea un hallazgo sorpresa de un jurado que lee el código.
+- **La firma de patrón de memoria puede generar falsos positivos — mitigado, no eliminado.** `pattern_signature` (`src/core/agent.py::_build_pattern_signature`) reconoce el mismo patrón estructural en otra entidad para reutilizar un diagnóstico. Hasta el 2026-08-08 el formato era `tipo:hop:upstream:downstream`, sin ningún ancla de dominio — dos datasets completamente no relacionados con la misma forma estructural producían la misma firma. Se agregó la plataforma del nodo causal (`urn:li:dataPlatform:...`, ya disponible en el URN, sin llamada extra) como cuarto componente (`tipo:hop:upstream:downstream:plataforma`): reduce colisiones entre plataformas distintas, pero **no** entre dos datasets no relacionados de la misma plataforma. Por eso el mensaje de reuso en `main.py cmd_diagnose` es explícito ("coincidencia ESTRUCTURAL, no confirmación de mismo incidente") en vez de presentar la reutilización como un hecho confiable sin matices. Ver `AUDIT_REPORT.md`, Sección 2, ítem 1, para el hallazgo original.
 - **Mecanismo "lag-aware": pesos dinámicos por antigüedad + descuento por herencia + top-K rankeado — diseño propio, no una cita académica.** `RootCauseDiagnoser` ya no usa solo el peso fijo del tipo de evidencia: para `schema_change`/`stale_data` (que sí tienen timestamp real) aplica un decaimiento exponencial por antigüedad (`adjusted_weight`, nunca llega a cero), y si el mismo tipo de evidencia aparece en dos hops consecutivos, descuenta el más cercano al target por ser probablemente heredado del hop más lejano, no una señal independiente. `analyze()` también devuelve `ranked_candidates` (top-K, no solo una respuesta) para no esconder la ambigüedad cuando hay 2+ causas plausibles. **Aviso de origen, sin vueltas:** esta idea nació de un intento de citar un paper ("LagRCA", supuesto premio de FSE 2026) que resultó ser una alucinación — verificado contra el programa oficial de la conferencia, no existe ahí. La idea técnica en sí era buena, así que se implementó como diseño original de Majestic (ver `docs/LAG_AWARE_DIAGNOSIS.md` para el detalle completo), sin ninguna cita falsa. Lo que sí está citado y verificado en fuente primaria es el prior art real de RCA en microservicios — MicroRCA, Microscope, TraceDiag, DynaCausal, IDI — ver `docs/PROPOSAL.md`.
 
 ## Licencia

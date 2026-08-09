@@ -49,6 +49,12 @@ def cmd_diagnose(
     if previous:
         print("\n♻️  Ya existe un diagnóstico con esta firma de patrón en otra entidad:")
         print(json.dumps(previous, indent=2, ensure_ascii=False))
+        print(
+            "   ⚠️  Esto es una coincidencia ESTRUCTURAL (tipo de evidencia, hop, "
+            "conteos de linaje, plataforma) — no una confirmación de que sea el "
+            "mismo incidente real. Revisar antes de confiar ciegamente, sobre "
+            "todo si el dominio de negocio parece distinto."
+        )
 
     print("\n🩺 Diagnóstico:")
     print(json.dumps(report, indent=2, ensure_ascii=False))

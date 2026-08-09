@@ -9,7 +9,7 @@ import logging
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Dict, List
 
-from datahub.metadata.schema_classes import OwnershipClass
+from datahub.metadata.schema_classes import CorpUserInfoClass, OwnershipClass
 
 from config.settings import DEFAULT_MAX_HOPS, MAX_PARALLEL_REQUESTS
 from src.graph.client import DataHubClient
@@ -54,6 +54,7 @@ class ImpactSimulator:
             "affected_datasets": len(downstream_nodes),
             "affected_dashboards": len(affected_dashboards),
             "affected_owners": affected_owners,
+            "affected_owners_display": self._resolve_owner_names(affected_owners),
             "risk_level": self._risk_level(len(downstream_nodes), len(affected_dashboards)),
         }
 
@@ -81,6 +82,32 @@ class ImpactSimulator:
             if ownership:
                 owners.update(owner.owner for owner in ownership.owners)
         return sorted(owners)
+
+    def _resolve_owner_names(self, owner_urns: List[str]) -> List[Dict[str, str]]:
+        """
+        Resuelve un nombre legible (`displayName`/`fullName` de
+        `CorpUserInfoClass`) para cada owner URN — para que la demo/CLI
+        muestre "Sarah, del equipo de Finanzas" en vez de
+        `urn:li:corpuser:sarah.finance`. Nunca omite un owner por no poder
+        resolver su nombre: si `CorpUserInfoClass` no existe o falla la
+        lectura, cae de vuelta al URN crudo.
+        """
+        if not owner_urns:
+            return []
+
+        def fetch_name(urn: str) -> Dict[str, str]:
+            try:
+                info = self.client.graph.get_aspect(urn, CorpUserInfoClass)
+            except Exception:
+                info = None
+            display_name = (info.displayName or info.fullName) if info else None
+            return {"urn": urn, "name": display_name or urn}
+
+        if len(owner_urns) == 1:
+            return [fetch_name(owner_urns[0])]
+
+        with ThreadPoolExecutor(max_workers=min(len(owner_urns), MAX_PARALLEL_REQUESTS)) as pool:
+            return list(pool.map(fetch_name, owner_urns))
 
     @staticmethod
     def _risk_level(affected_count: int, dashboard_count: int) -> str:

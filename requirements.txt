@@ -3,4 +3,3 @@ requests
 pydantic
 python-dotenv
 tenacity
-pytest

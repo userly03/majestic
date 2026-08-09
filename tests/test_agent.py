@@ -33,8 +33,33 @@ def test_diagnose_builds_pattern_signature_from_root_cause(connected_client):
 
     assert report["upstream_count"] == 2
     assert report["downstream_count"] == 1
-    assert report["pattern_signature"] == "stale_data:2:2:1"
+    assert report["pattern_signature"] == "stale_data:2:2:1:unknown"
     assert report["ranked_candidates"] == diagnosis["ranked_candidates"]
+
+
+def test_diagnose_pattern_signature_includes_root_cause_platform(connected_client):
+    upstream = [{"urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,x.y,PROD)", "hop": 1}]
+    downstream = []
+    diagnosis = {
+        "root_cause_urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,x.y,PROD)",
+        "reason": "stale",
+        "causal_chain": [
+            {
+                "urn": "urn:li:dataset:(urn:li:dataPlatform:snowflake,x.y,PROD)",
+                "hop": 1,
+                "evidence_type": "stale_data",
+                "evidence": "y",
+                "weight": 0.5,
+            },
+        ],
+        "confidence": 0.5,
+        "ranked_candidates": [],
+    }
+
+    agent = _agent_with_mocks(connected_client, upstream, downstream, diagnosis)
+    report = agent.diagnose("A")
+
+    assert report["pattern_signature"] == "stale_data:1:1:0:snowflake"
 
 
 def test_diagnose_signature_when_no_root_cause(connected_client):
@@ -49,4 +74,4 @@ def test_diagnose_signature_when_no_root_cause(connected_client):
     agent = _agent_with_mocks(connected_client, [], [], diagnosis)
     report = agent.diagnose("A")
 
-    assert report["pattern_signature"] == "unknown:0:0:0"
+    assert report["pattern_signature"] == "unknown:0:0:0:unknown"
