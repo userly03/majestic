@@ -17,3 +17,8 @@ build/
 # (rehearsal script, internal engineering log). Kept on disk, never pushed.
 docs/DEMO_SCRIPT.md
 docs/PROPOSAL.md
+
+# GitHub Actions workflow — kept locally, not pushed. The PAT used to push
+# this repo doesn't have the `workflow` scope, and GitHub rejects any push
+# that adds/modifies files under .github/workflows/ without it.
+.github/workflows/ci.yml

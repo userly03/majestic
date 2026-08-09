@@ -84,8 +84,7 @@ Majestic/
 │   └── impact/                 # downstream impact simulator
 ├── scripts/                # spikes, demo data seeding, examples/ generator
 ├── tests/                   # unit tests (mocks) + integration (opt-in, real DataHub)
-├── examples/                # example outputs
-└── .github/workflows/       # CI
+└── examples/                # example outputs
 ```
 
 ## Setup
