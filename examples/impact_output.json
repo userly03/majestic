@@ -3,5 +3,6 @@
   "affected_datasets": 1,
   "affected_dashboards": 1,
   "affected_owners": [],
+  "affected_owners_display": [],
   "risk_level": "high"
 }
