@@ -62,8 +62,8 @@ def test_analyze_no_evidence_returns_empty_chain(connected_client):
 
 
 def test_analyze_stops_chain_at_first_unevidenced_hop(connected_client):
-    # Hop 1 (B) no tiene evidencia; hop 2 (C) sí la tendría, pero no debe
-    # llegar a evaluarse porque la cadena se corta en el primer salto sin evidencia.
+    # Hop 1 (B) has no evidence; hop 2 (C) would have some, but it must
+    # never be evaluated because the chain stops at the first hop with no evidence.
     def get_aspect(urn, aspect_type, version=0):
         if urn == "C" and aspect_type is GlobalTagsClass:
             return GlobalTagsClass(tags=[TagAssociationClass(tag="urn:li:tag:error")])
@@ -81,7 +81,7 @@ def test_analyze_stops_chain_at_first_unevidenced_hop(connected_client):
 def test_analyze_picks_farthest_evidenced_hop_as_root_cause(connected_client):
     def get_aspect(urn, aspect_type, version=0):
         if aspect_type is OwnershipClass:
-            return OwnershipClass(owners=[])  # sin owner: evidencia en ambos
+            return OwnershipClass(owners=[])  # no owner: evidence on both
         return None
 
     connected_client.graph.get_aspect.side_effect = get_aspect
@@ -94,8 +94,8 @@ def test_analyze_picks_farthest_evidenced_hop_as_root_cause(connected_client):
 
 
 def test_analyze_evaluates_multiple_nodes_in_same_hop_in_parallel(connected_client):
-    # B y C están en el MISMO hop -> ejercita la rama con ThreadPoolExecutor
-    # de _collect_evidence_parallel (no la secuencial de un solo nodo).
+    # B and C are at the SAME hop -> exercises _collect_evidence_parallel's
+    # ThreadPoolExecutor branch (not the single-node sequential path).
     def get_aspect(urn, aspect_type, version=0):
         if urn == "B" and aspect_type is GlobalTagsClass:
             return GlobalTagsClass(tags=[TagAssociationClass(tag="urn:li:tag:incident")])
@@ -130,7 +130,7 @@ def test_get_aspect_cached_distinguishes_by_aspect_type(connected_client):
     assert connected_client.graph.get_aspect.call_count == 2
 
 
-# --- Mecanismo "lag-aware" (docs/LAG_AWARE_DIAGNOSIS.md) ---
+# --- "lag-aware" mechanism (docs/LAG_AWARE_DIAGNOSIS.md) ---
 
 
 def test_recency_decay_fresh_evidence_is_not_discounted():
@@ -142,11 +142,11 @@ def test_recency_decay_old_evidence_is_discounted_but_never_zero():
     assert decay_at_one_halflife == 0.5
 
     decay_very_old = RootCauseDiagnoser._recency_decay(48.0 * 20)
-    assert 0.0 < decay_very_old < 0.001  # se acerca a 0, nunca llega
+    assert 0.0 < decay_very_old < 0.001  # approaches 0, never reaches it
 
 
 def test_recency_decay_without_timestamp_is_unaffected():
-    # incident_tag / unowned no tienen age_hours disponible.
+    # incident_tag / unowned have no age_hours available.
     assert RootCauseDiagnoser._recency_decay(None) == 1.0
 
 
@@ -154,9 +154,9 @@ def test_analyze_discounts_schema_change_older_than_recent_one(connected_client)
     def get_aspect(urn, aspect_type, version=0):
         if aspect_type is SchemaMetadataClass:
             if urn == "B":
-                return _schema_changed(hours_ago=0.0)  # recién ocurrido, sin decaimiento
+                return _schema_changed(hours_ago=0.0)  # just happened, no decay
             if urn == "C":
-                return _schema_changed(hours_ago=0.0)  # también recién ocurrido, mismo tipo
+                return _schema_changed(hours_ago=0.0)  # also just happened, same type
         return None
 
     connected_client.graph.get_aspect.side_effect = get_aspect
@@ -167,26 +167,26 @@ def test_analyze_discounts_schema_change_older_than_recent_one(connected_client)
     b_entry = next(link for link in result["causal_chain"] if link["urn"] == "B")
     c_entry = next(link for link in result["causal_chain"] if link["urn"] == "C")
 
-    # B (hop 1, más cerca del target) hereda el mismo evidence_type que C
-    # (hop 2, más upstream) -> se descuenta.
+    # B (hop 1, closer to the target) inherits the same evidence_type as C
+    # (hop 2, farther upstream) -> gets discounted.
     assert b_entry["adjusted_weight"] < b_entry["weight"]
-    # C es el hop más lejano con ese tipo -> no se descuenta por herencia
-    # (ambos son igual de recientes, así que el decaimiento es el mismo).
+    # C is the farthest hop with that type -> not discounted for inheritance
+    # (both are equally recent, so the decay is the same).
     assert c_entry["adjusted_weight"] == c_entry["weight"]
-    # La causa raíz sigue siendo el hop más lejano evidenciado.
+    # The root cause is still the farthest evidenced hop.
     assert result["root_cause_urn"] == "C"
 
 
 def test_analyze_old_evidence_ranked_below_fresh_evidence_in_same_hop(connected_client):
     def get_aspect(urn, aspect_type, version=0):
         if urn == "B" and aspect_type is SchemaMetadataClass:
-            return _schema_changed(hours_ago=0.5)  # fresco
+            return _schema_changed(hours_ago=0.5)  # fresh
         if urn == "C" and aspect_type is DatasetPropertiesClass:
             from datahub.metadata.schema_classes import TimeStampClass
 
             return DatasetPropertiesClass(
                 name="c",
-                lastModified=TimeStampClass(time=_millis_ago(23 * 24)),  # 23 días, muy viejo
+                lastModified=TimeStampClass(time=_millis_ago(23 * 24)),  # 23 days, very old
             )
         return None
 
@@ -198,9 +198,9 @@ def test_analyze_old_evidence_ranked_below_fresh_evidence_in_same_hop(connected_
     assert len(result["causal_chain"]) == 2
     b_entry = next(link for link in result["causal_chain"] if link["urn"] == "B")
     c_entry = next(link for link in result["causal_chain"] if link["urn"] == "C")
-    # C es stale_data (base 0.5) muy vieja -> decae mucho; B es schema_change
-    # (base 0.7) recién ocurrido -> casi no decae. B debería rankear primero
-    # pese a estar en el mismo hop.
+    # C is stale_data (base 0.5) very old -> decays a lot; B is schema_change
+    # (base 0.7) just happened -> barely decays. B should rank first
+    # despite being at the same hop.
     assert result["ranked_candidates"][0]["urn"] == "B"
     assert b_entry["adjusted_weight"] > c_entry["adjusted_weight"]
 

@@ -1,8 +1,8 @@
 """
-Entrypoint CLI de Majestic.
+Majestic CLI entrypoint.
 
-Uso:
-    python3 main.py [--quiet] diagnose <urn> [--write] [--business-context "texto"] [--explain]
+Usage:
+    python3 main.py [--quiet] diagnose <urn> [--write] [--business-context "text"] [--explain]
     python3 main.py [--quiet] impact <urn>
     python3 main.py doctor
 """
@@ -30,7 +30,7 @@ MEMORY_PROPERTY_YAML = str(
 DOCTOR_TEST_URN = "urn:li:dataset:(urn:li:dataPlatform:hive,_majestic_doctor_check,PROD)"
 _DOCTOR_REPORT = {
     "pattern_signature": "doctor_check:0:0:0",
-    "reason": "Chequeo de `main.py doctor` — no es un diagnóstico real.",
+    "reason": "`main.py doctor` check — not a real diagnosis.",
     "confidence": 0.0,
 }
 
@@ -47,21 +47,21 @@ def cmd_diagnose(
         report["pattern_signature"], exclude_urn=urn
     )
     if previous:
-        print("\n♻️  Ya existe un diagnóstico con esta firma de patrón en otra entidad:")
+        print("\nA diagnosis with this pattern signature already exists on another entity:")
         print(json.dumps(previous, indent=2, ensure_ascii=False))
         print(
-            "   ⚠️  Esto es una coincidencia ESTRUCTURAL (tipo de evidencia, hop, "
-            "conteos de linaje, plataforma) — no una confirmación de que sea el "
-            "mismo incidente real. Revisar antes de confiar ciegamente, sobre "
-            "todo si el dominio de negocio parece distinto."
+            "   Note: this is a STRUCTURAL match (evidence type, hop, lineage "
+            "counts, platform) — not confirmation that it's the same real "
+            "incident. Review before trusting it blindly, especially if the "
+            "business domain looks different."
         )
 
-    print("\n🩺 Diagnóstico:")
+    print("\nDiagnosis:")
     print(json.dumps(report, indent=2, ensure_ascii=False))
 
     ranked = report.get("ranked_candidates") or []
     if len(ranked) > 1:
-        print(f"\n🔀 {len(ranked)} candidatos a causa raíz, rankeados (mecanismo lag-aware):")
+        print(f"\n{len(ranked)} root-cause candidates, ranked (lag-aware mechanism):")
         for i, candidate in enumerate(ranked, start=1):
             print(
                 f"   {i}. {candidate['urn']} (hop {candidate['hop']}, "
@@ -69,29 +69,28 @@ def cmd_diagnose(
             )
 
     if explain_flag:
-        print("\n📝 Explicación:")
+        print("\nExplanation:")
         print(explain(report))
 
     if write:
         ok = writer.write_report(urn, report, business_context=business_context)
-        print("\n💾 Write-back:", "OK" if ok else "FALLÓ")
+        print("\nWrite-back:", "OK" if ok else "FAILED")
 
 
 def cmd_impact(client: DataHubClient, urn: str) -> None:
     simulator = ImpactSimulator(client)
     impact_report = simulator.simulate(urn)
-    print("\n⚡ Simulación de impacto:")
+    print("\nImpact simulation:")
     print(json.dumps(impact_report, indent=2, ensure_ascii=False))
 
 
 def cmd_check_change(client: DataHubClient, urn: str) -> None:
     """
-    Evalúa si un cambio sobre `urn` es seguro de aplicar, combinando el
-    blast radius (ImpactSimulator, sin modificar) con qué tan huérfano
-    está el downstream (RiskAssessor). Termina con exit code 1 si el
-    riesgo supera el umbral configurado (bloqueado) o 0 si lo aprueba —
-    pensado para usarse como gate en un pipeline de CI/CD, no solo para
-    lectura humana.
+    Evaluates whether a change on `urn` is safe to apply, combining the
+    blast radius (ImpactSimulator, unmodified) with how orphaned the
+    downstream is (RiskAssessor). Exits with code 1 if the risk exceeds
+    the configured threshold (blocked) or 0 if it's approved — meant to
+    be used as a gate in a CI/CD pipeline, not just for human reading.
     """
     simulator = ImpactSimulator(client)
     assessor = RiskAssessor(client)
@@ -99,23 +98,23 @@ def cmd_check_change(client: DataHubClient, urn: str) -> None:
     impact_report = simulator.simulate(urn)
     assessment = assessor.assess(urn, impact_report)
 
-    print(f"\n🔍 check-change — {urn}")
-    print(f"   Datasets afectados downstream:   {impact_report['affected_datasets']}")
-    print(f"   Dashboards afectados downstream: {impact_report['affected_dashboards']}")
-    print(f"   Salud del downstream (con owner): {assessment['health_score'] * 100:.0f}%")
-    print(f"   Nivel de riesgo: {assessment['risk_label']} (score {assessment['risk_score']:.2f}, umbral {assessment['threshold']:.2f})")
+    print(f"\ncheck-change — {urn}")
+    print(f"   Datasets affected downstream:   {impact_report['affected_datasets']}")
+    print(f"   Dashboards affected downstream: {impact_report['affected_dashboards']}")
+    print(f"   Downstream health (has owner):  {assessment['health_score'] * 100:.0f}%")
+    print(f"   Risk level: {assessment['risk_label']} (score {assessment['risk_score']:.2f}, threshold {assessment['threshold']:.2f})")
 
     if assessment["should_block"]:
-        print("\n🚫 Cambio bloqueado — riesgo alto")
+        print("\nChange blocked — high risk")
         sys.exit(1)
     else:
-        print("\n✅ Cambio seguro")
+        print("\nChange is safe")
         sys.exit(0)
 
 
 def _doctor_check_properties(client: DataHubClient) -> bool:
-    """Confirma que las structured properties de config/agent_memory_property.yaml
-    estén registradas en DataHub; si faltan, intenta registrarlas."""
+    """Confirms the structured properties from config/agent_memory_property.yaml
+    are registered in DataHub; registers them if missing."""
     from datahub.api.entities.structuredproperties.structuredproperties import (
         StructuredProperties,
     )
@@ -132,42 +131,42 @@ def _doctor_check_properties(client: DataHubClient) -> bool:
 
     missing = _missing()
     if not missing:
-        print("  ✅ Las 5 structured properties ya están registradas.")
+        print("  OK: all 5 structured properties are already registered.")
         return True
 
     print(
-        f"  ⚠️  Faltan {len(missing)}/{len(definitions)} — registrando desde "
+        f"  WARNING: {len(missing)}/{len(definitions)} missing — registering from "
         f"{MEMORY_PROPERTY_YAML}..."
     )
     try:
         StructuredProperties.create(MEMORY_PROPERTY_YAML, client.graph)
     except Exception as exc:
-        print(f"  ❌ No se pudieron registrar: {exc}")
+        print(f"  FAILED: could not register: {exc}")
         return False
 
     still_missing = _missing()
     if still_missing:
-        print(f"  ❌ Siguen faltando: {[d.id for d in still_missing]}")
+        print(f"  FAILED: still missing: {[d.id for d in still_missing]}")
         return False
 
-    print("  ✅ Registradas correctamente.")
+    print("  OK: registered successfully.")
     return True
 
 
 def _doctor_check_write_read_cycle(client: DataHubClient) -> bool:
-    """Ciclo rápido de escritura + lectura contra un URN de prueba dedicado,
-    para confirmar permisos de escritura sin tocar datos reales."""
+    """Quick write + read cycle against a dedicated test URN, to confirm
+    write permissions without touching real data."""
     from datahub.emitter.mcp import MetadataChangeProposalWrapper
     from datahub.metadata.schema_classes import DatasetPropertiesClass, StatusClass
 
-    # Asegura que el URN de prueba exista como entidad antes de aplicar el patch
-    # de structuredProperties (un PATCH sobre una entidad inexistente puede fallar).
+    # Ensures the test URN exists as an entity before applying the
+    # structuredProperties patch (a PATCH on a nonexistent entity can fail).
     client.graph.emit_mcp(
         MetadataChangeProposalWrapper(
             entityUrn=DOCTOR_TEST_URN,
             aspect=DatasetPropertiesClass(
                 name="_majestic_doctor_check",
-                description="Entidad de prueba de `main.py doctor`. Seguro de ignorar/borrar.",
+                description="Test entity for `main.py doctor`. Safe to ignore/delete.",
             ),
         )
     )
@@ -177,138 +176,139 @@ def _doctor_check_write_read_cycle(client: DataHubClient) -> bool:
 
     writer = DiagnosisWriter(client)
     if not writer.write_report(DOCTOR_TEST_URN, _DOCTOR_REPORT):
-        print("  ❌ Falló la escritura.")
+        print("  FAILED: write failed.")
         return False
 
     read_back = writer.read_diagnosis(DOCTOR_TEST_URN)
     if read_back and read_back["pattern_signature"] == _DOCTOR_REPORT["pattern_signature"]:
-        print("  ✅ Escritura y lectura confirmadas.")
+        print("  OK: write and read confirmed.")
         return True
 
-    print(f"  ❌ La lectura no coincide con lo escrito: {read_back}")
+    print(f"  FAILED: what was read doesn't match what was written: {read_back}")
     return False
 
 
 def cmd_doctor() -> None:
-    """Corre en un solo comando lo que antes eran 3 pasos manuales
+    """Runs, in a single command, what used to be 3 manual steps
     (scripts/spike_test.py + datahub properties upsert + scripts/spike_writeback_test.py)."""
-    print("🩺 Majestic doctor — validando el setup antes de la demo\n")
+    print("Majestic doctor — validating the setup before the demo\n")
     results: dict[str, bool] = {}
 
-    print("1/3 — Conexión a DataHub...")
+    print("1/3 — DataHub connection...")
     client = DataHubClient()
-    results["Conexión a DataHub"] = client.is_connected
-    print("  ✅ Conectado" if client.is_connected else "  ❌ No se pudo conectar")
+    results["DataHub connection"] = client.is_connected
+    print("  OK: connected" if client.is_connected else "  FAILED: could not connect")
 
     if client.is_connected:
-        print("\n2/3 — Structured properties registradas...")
+        print("\n2/3 — Structured properties registered...")
         try:
-            results["Structured properties registradas"] = _doctor_check_properties(client)
+            results["Structured properties registered"] = _doctor_check_properties(client)
         except Exception as exc:
-            print(f"  ❌ Error verificando properties: {exc}")
-            results["Structured properties registradas"] = False
+            print(f"  FAILED: error checking properties: {exc}")
+            results["Structured properties registered"] = False
 
-        print("\n3/3 — Ciclo de escritura/lectura...")
+        print("\n3/3 — Write/read cycle...")
         try:
-            results["Ciclo de escritura/lectura"] = _doctor_check_write_read_cycle(client)
+            results["Write/read cycle"] = _doctor_check_write_read_cycle(client)
         except Exception as exc:
-            print(f"  ❌ Error en el ciclo de escritura/lectura: {exc}")
-            results["Ciclo de escritura/lectura"] = False
+            print(f"  FAILED: error during the write/read cycle: {exc}")
+            results["Write/read cycle"] = False
     else:
-        print("\n2/3 y 3/3 — Saltados (sin conexión).")
-        results["Structured properties registradas"] = False
-        results["Ciclo de escritura/lectura"] = False
+        print("\n2/3 and 3/3 — Skipped (no connection).")
+        results["Structured properties registered"] = False
+        results["Write/read cycle"] = False
 
     print("\n" + "=" * 50)
-    print("Resumen:")
+    print("Summary:")
     for name, ok in results.items():
-        print(f"  {'✅' if ok else '❌'} {name}")
+        print(f"  {'OK' if ok else 'FAILED'}: {name}")
 
     all_ok = all(results.values())
     if all_ok:
-        print("\n🎉 Todo listo para la demo.")
+        print("\nEverything is ready for the demo.")
     else:
-        print("\n⚠️  Hay pasos pendientes antes de la demo — revisar los ❌ arriba.")
-        if not results["Conexión a DataHub"]:
-            print("   Ejecuta: datahub docker quickstart")
+        print("\nThere are pending steps before the demo — check the FAILED items above.")
+        if not results["DataHub connection"]:
+            print("   Run: datahub docker quickstart")
 
     sys.exit(0 if all_ok else 1)
 
 
 def _human_error(exc: Exception) -> str:
-    """Traduce excepciones típicas del SDK/red a un mensaje legible para la demo,
-    en vez de dejar que se imprima un traceback crudo."""
+    """Translates typical SDK/network exceptions into a readable message for
+    the demo, instead of letting a raw traceback print."""
     if isinstance(exc, (requests.exceptions.ConnectionError, requests.exceptions.Timeout)):
-        return "No se pudo conectar a DataHub (host inalcanzable o timeout). Ejecuta: datahub docker quickstart"
+        return "Could not connect to DataHub (host unreachable or timeout). Run: datahub docker quickstart"
 
     if isinstance(exc, requests.exceptions.HTTPError):
         status = exc.response.status_code if exc.response is not None else None
         if status == 404:
-            return "Dataset no encontrado en DataHub. Revisá que el URN esté bien escrito."
+            return "Dataset not found in DataHub. Check that the URN is correct."
         if status == 400:
-            return "DataHub rechazó el URN por formato inválido. Revisá que sea un URN completo (ej. 'urn:li:dataset:(...)')."
-        return f"DataHub respondió con un error HTTP {status}."
+            return "DataHub rejected the URN as invalid. Check that it's a complete URN (e.g. 'urn:li:dataset:(...)')."
+        return f"DataHub responded with HTTP error {status}."
 
     if isinstance(exc, RuntimeError):
         return str(exc)
 
-    return f"Error inesperado ({type(exc).__name__}): {exc}"
+    return f"Unexpected error ({type(exc).__name__}): {exc}"
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Majestic — agente de linaje y observabilidad de datos.")
+    parser = argparse.ArgumentParser(description="Majestic — data lineage and observability agent.")
     parser.add_argument(
         "--quiet",
         action="store_true",
         help=(
-            "Suprime los logs internos (conexión, traversal, etc.) y deja solo "
-            "el resultado final — pensado para compartir pantalla en una demo."
+            "Suppresses internal logs (connection, traversal, etc.) and leaves only "
+            "the final result — meant for screen-sharing during a demo."
         ),
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    diagnose_parser = subparsers.add_parser("diagnose", help="Diagnostica la causa raíz de un URN.")
-    diagnose_parser.add_argument("urn", help="URN del dataset a diagnosticar.")
+    diagnose_parser = subparsers.add_parser("diagnose", help="Diagnoses the root cause of a URN.")
+    diagnose_parser.add_argument("urn", help="URN of the dataset to diagnose.")
     diagnose_parser.add_argument(
-        "--write", action="store_true", help="Persiste el diagnóstico en DataHub."
+        "--write", action="store_true", help="Persists the diagnosis in DataHub."
     )
     diagnose_parser.add_argument(
         "--business-context",
         default=None,
-        help="Contexto de negocio / lección aprendida a guardar junto al diagnóstico.",
+        help="Business context / lesson learned to save alongside the diagnosis.",
     )
     diagnose_parser.add_argument(
         "--explain",
         action="store_true",
         help=(
-            "Redacta la cadena de evidencia en lenguaje natural. Hoy es una "
-            "plantilla determinística (no llama a ningún LLM externo) — ver "
+            "Writes up the evidence chain in natural language. Today it's a "
+            "deterministic template (doesn't call any external LLM) — see "
             "src/core/narrator.py."
         ),
     )
 
-    impact_parser = subparsers.add_parser("impact", help="Simula el impacto downstream de un cambio.")
-    impact_parser.add_argument("urn", help="URN del dataset a modificar.")
+    impact_parser = subparsers.add_parser("impact", help="Simulates the downstream impact of a change.")
+    impact_parser.add_argument("urn", help="URN of the dataset to modify.")
 
     check_change_parser = subparsers.add_parser(
         "check-change",
-        help="Evalúa si un cambio sobre un dataset es seguro (gate de CI/CD): exit 0 aprueba, exit 1 bloquea.",
+        help="Evaluates whether a change on a dataset is safe (CI/CD gate): exit 0 approves, exit 1 blocks.",
     )
-    check_change_parser.add_argument("--urn", required=True, help="URN del dataset a evaluar.")
+    check_change_parser.add_argument("--urn", required=True, help="URN of the dataset to evaluate.")
     check_change_parser.add_argument(
         "--dry-run",
         action="store_true",
         help=(
-            "No tiene efecto hoy — check-change nunca escribe nada en DataHub "
-            "(solo lee lineage y ownership). Se acepta el flag por compatibilidad "
-            "con pipelines de CI que ya lo pasan a otras herramientas; reservado "
-            "para si en el futuro check-change aplica el cambio en vez de solo evaluarlo."
+            "Has no effect today — check-change never writes anything to DataHub "
+            "(it only reads lineage and ownership). The flag is accepted for "
+            "compatibility with CI pipelines that already pass it to other tools; "
+            "reserved for if check-change ever applies the change instead of only "
+            "evaluating it."
         ),
     )
 
     subparsers.add_parser(
         "doctor",
-        help="Valida conexión, structured properties y permisos de escritura en un solo comando.",
+        help="Validates connection, structured properties, and write permissions in a single command.",
     )
 
     args = parser.parse_args()
@@ -324,7 +324,7 @@ def main() -> None:
 
     client = DataHubClient()
     if not client.is_connected:
-        logger.error("No se pudo conectar a DataHub. Ejecuta: datahub docker quickstart")
+        logger.error("Could not connect to DataHub. Run: datahub docker quickstart")
         sys.exit(1)
 
     try:
@@ -335,8 +335,8 @@ def main() -> None:
         elif args.command == "check-change":
             cmd_check_change(client, args.urn)
     except Exception as exc:
-        logger.debug("Detalle completo del error", exc_info=True)
-        print(f"\n❌ Error: {_human_error(exc)}")
+        logger.debug("Full error detail", exc_info=True)
+        print(f"\nError: {_human_error(exc)}")
         sys.exit(1)
 
 

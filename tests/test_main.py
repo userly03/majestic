@@ -10,24 +10,24 @@ import main
 
 def test_connection_error_maps_to_friendly_message():
     msg = main._human_error(requests.exceptions.ConnectionError("boom"))
-    assert "No se pudo conectar" in msg
+    assert "Could not connect" in msg
 
 
 def test_timeout_maps_to_friendly_message():
     msg = main._human_error(requests.exceptions.Timeout("boom"))
-    assert "No se pudo conectar" in msg
+    assert "Could not connect" in msg
 
 
 def test_http_404_maps_to_not_found_message():
     exc = requests.exceptions.HTTPError(response=SimpleNamespace(status_code=404))
     msg = main._human_error(exc)
-    assert "no encontrado" in msg.lower()
+    assert "not found" in msg.lower()
 
 
 def test_http_400_maps_to_invalid_urn_message():
     exc = requests.exceptions.HTTPError(response=SimpleNamespace(status_code=400))
     msg = main._human_error(exc)
-    assert "formato inválido" in msg
+    assert "invalid" in msg.lower()
 
 
 def test_http_other_status_includes_status_code():
@@ -37,14 +37,14 @@ def test_http_other_status_includes_status_code():
 
 
 def test_runtime_error_passes_through_message():
-    msg = main._human_error(RuntimeError("DataHubClient no está conectado."))
-    assert msg == "DataHubClient no está conectado."
+    msg = main._human_error(RuntimeError("DataHubClient is not connected."))
+    assert msg == "DataHubClient is not connected."
 
 
 def test_generic_exception_falls_back_to_type_and_message():
-    msg = main._human_error(ValueError("algo raro"))
+    msg = main._human_error(ValueError("something weird"))
     assert "ValueError" in msg
-    assert "algo raro" in msg
+    assert "something weird" in msg
 
 
 def _run_main_with_args(argv):
@@ -69,8 +69,8 @@ def test_without_quiet_flag_sets_info_level():
 
 
 def test_check_change_parses_required_urn_flag():
-    # --urn es requerido: sin él, argparse debe fallar (SystemExit) antes
-    # de siquiera intentar conectar a DataHub.
+    # --urn is required: without it, argparse should fail (SystemExit)
+    # before even trying to connect to DataHub.
     import pytest
 
     with patch.object(sys, "argv", ["main.py", "check-change"]), pytest.raises(SystemExit):
@@ -92,7 +92,7 @@ def test_check_change_approves_low_risk_and_exits_zero(connected_client):
             "urn": "A",
             "health_score": 1.0,
             "risk_score": 0.0,
-            "risk_label": "BAJO",
+            "risk_label": "LOW",
             "should_block": False,
             "threshold": 0.5,
         }
@@ -117,7 +117,7 @@ def test_check_change_blocks_high_risk_and_exits_one(connected_client):
             "urn": "A",
             "health_score": 0.0,
             "risk_score": 0.84,
-            "risk_label": "ALTO",
+            "risk_label": "HIGH",
             "should_block": True,
             "threshold": 0.5,
         }

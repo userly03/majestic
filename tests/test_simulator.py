@@ -57,7 +57,7 @@ def test_simulate_single_downstream_node_uses_non_parallel_path(connected_client
     result = simulator.simulate("A")
 
     assert result["affected_owners"] == ["urn:li:corpuser:alice"]
-    # Sin CorpUserInfo disponible (no se pasó display_names_by_urn), cae al URN.
+    # No CorpUserInfo available (display_names_by_urn wasn't passed), falls back to the URN.
     assert result["affected_owners_display"] == [
         {"urn": "urn:li:corpuser:alice", "name": "urn:li:corpuser:alice"}
     ]

@@ -1,26 +1,26 @@
 """
-Genera los outputs de ejemplo en examples/ corriendo el código REAL del
-agente (MajesticAgent, ImpactSimulator, DiagnosisWriter, narrator — las
-mismas clases de producción, sin reimplementar ni simplificar la lógica)
-contra un grafo falso en memoria, no contra una instancia real de DataHub.
+Generates the example outputs in examples/ by running the agent's REAL
+code (MajesticAgent, ImpactSimulator, DiagnosisWriter, narrator — the
+same production classes, without reimplementing or simplifying the
+logic) against a fake in-memory graph, not a real DataHub instance.
 
-Por qué existe esto: no hay una instancia de DataHub disponible en este
-entorno para generar los outputs "reales" que pide el checklist de
-submission (ver examples/README.md). Esto es honestamente un paso
-intermedio — mejor que un JSON escrito a mano (que podía quedar
-desincronizado del código real la próxima vez que algo cambie), pero NO
-reemplaza correr esto contra DataHub de verdad antes de grabar el video.
-Cuando haya una instancia real:
+Why this exists: there's no DataHub instance available in this
+environment to generate the "real" outputs the submission checklist asks
+for (see examples/README.md). This is honestly an intermediate step —
+better than a hand-written JSON (which could drift out of sync with the
+real code the next time something changes), but it does NOT replace
+running this against real DataHub before recording the video. Once a
+real instance is available:
 
     python3 scripts/seed_demo_data.py
-    python3 main.py diagnose "<urn_de_C>" --write --explain
-    python3 main.py diagnose "<urn_de_F>"   # para el ejemplo de reuso
-    python3 main.py impact "<urn_de_C>"
+    python3 main.py diagnose "<C's urn>" --write --explain
+    python3 main.py diagnose "<F's urn>"   # for the memory-reuse example
+    python3 main.py impact "<C's urn>"
 
-y reemplazar los archivos de examples/ con esos outputs reales (más la
-captura de pantalla de la UI, que este script obviamente no puede generar).
+and replace the files in examples/ with those real outputs (plus the UI
+screenshot, which this script obviously can't generate).
 
-Uso:
+Usage:
     python3 scripts/generate_example_outputs.py
 """
 
@@ -55,10 +55,10 @@ from src.memory.writer import DiagnosisWriter
 
 EXAMPLES_DIR = Path(__file__).resolve().parent.parent / "examples"
 
-# Segunda entidad, en otra parte del grafo, con la MISMA estructura que
-# A→B→C (mismo tipo de evidencia, mismo hop, mismo fan-in/out) — para
-# demostrar que la Fase 3 (memoria) reutiliza el diagnóstico de C en vez
-# de razonar desde cero.
+# Second entity, elsewhere in the graph, with the SAME structure as
+# A->B->C (same evidence type, same hop, same fan-in/out) — to
+# demonstrate that Phase 3 (memory) reuses C's diagnosis instead of
+# reasoning from scratch.
 URN_H = "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.finance_raw,PROD)"
 URN_G = "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.finance_etl,PROD)"
 URN_F = "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.finance_report,PROD)"
@@ -68,11 +68,11 @@ TAG2_URN = "urn:li:tag:majestic_demo_incident_2"
 
 class FakeDataHub:
     """
-    Grafo falso en memoria con la misma forma de respuesta que
-    DataHubGraph (scroll_lineage, get_aspect, emit_mcp, emit_mcps,
-    get_urns_by_filter), para poder correr el código real del agente sin
-    una instancia de DataHub corriendo. NO es un mock que finge éxito: de
-    verdad guarda y responde con lo que se emitió, direction-aware.
+    Fake in-memory graph with the same response shape as DataHubGraph
+    (scroll_lineage, get_aspect, emit_mcp, emit_mcps,
+    get_urns_by_filter), so the agent's real code can run without a
+    DataHub instance up. NOT a mock that fakes success: it genuinely
+    stores and responds with what was emitted, direction-aware.
     """
 
     def __init__(self):
@@ -142,11 +142,11 @@ class FakeDataHub:
 
 
 def _seed_second_matching_entity(client) -> None:
-    """H -> G -> F, mismo patrón que A -> B -> C: anomalía (tag de
-    incidente) en G, dashboard downstream de F."""
+    """H -> G -> F, same pattern as A -> B -> C: anomaly (incident tag)
+    on G, dashboard downstream of F."""
     for urn, name in [(URN_H, "finance_raw"), (URN_G, "finance_etl"), (URN_F, "finance_report")]:
         client.graph.emit_mcp(MetadataChangeProposalWrapper(
-            entityUrn=urn, aspect=DatasetPropertiesClass(name=name, description="[Majestic demo] Ejemplo de reuso de memoria."),
+            entityUrn=urn, aspect=DatasetPropertiesClass(name=name, description="[Majestic demo] Memory-reuse example."),
         ))
         client.graph.emit_mcp(MetadataChangeProposalWrapper(entityUrn=urn, aspect=StatusClass(removed=False)))
 
@@ -163,8 +163,8 @@ def _seed_second_matching_entity(client) -> None:
     ))
     client.graph.emit_mcp(MetadataChangeProposalWrapper(
         entityUrn=TAG2_URN, aspect=TagPropertiesClass(
-            name="Majestic Demo: Incidente 2",
-            description="Segundo tag sintético (entidad H→G→F) para el ejemplo de reuso de memoria.",
+            name="Majestic Demo: Incident 2",
+            description="Second synthetic tag (H->G->F entity) for the memory-reuse example.",
         ),
     ))
     client.graph.emit_mcp(MetadataChangeProposalWrapper(
@@ -177,8 +177,8 @@ def _seed_second_matching_entity(client) -> None:
     client.graph.emit_mcp(MetadataChangeProposalWrapper(
         entityUrn=DASHBOARD2_URN,
         aspect=DashboardInfoClass(
-            title="[Majestic demo] Dashboard de Finanzas",
-            description="Ejemplo de reuso de memoria.",
+            title="[Majestic demo] Finance Dashboard",
+            description="Memory-reuse example.",
             lastModified=ChangeAuditStampsClass(created=stamp, lastModified=stamp),
             datasets=[URN_F],
         ),
@@ -188,38 +188,38 @@ def _seed_second_matching_entity(client) -> None:
 def _write_json(filename: str, data) -> None:
     path = EXAMPLES_DIR / filename
     path.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n")
-    print(f"  ✓ {path.relative_to(EXAMPLES_DIR.parent)}")
+    print(f"  OK: {path.relative_to(EXAMPLES_DIR.parent)}")
 
 
 def main() -> None:
     graph = FakeDataHub()
     client = SimpleNamespace(graph=graph, is_connected=True)
 
-    print("1/4 — Sembrando A→B→C + dashboard (mismo grafo que seed_demo_data.py)...")
+    print("1/4 - Seeding A->B->C + dashboard (same graph as seed_demo_data.py)...")
     seed_mod.seed(client)
-    print("2/4 — Sembrando H→G→F + dashboard2 (misma estructura, para el ejemplo de reuso)...")
+    print("2/4 - Seeding H->G->F + dashboard2 (same structure, for the reuse example)...")
     _seed_second_matching_entity(client)
 
     agent = MajesticAgent(client)
     simulator = ImpactSimulator(client)
     writer = DiagnosisWriter(client)
 
-    print("3/4 — Corriendo diagnose/impact/write reales sobre C...")
+    print("3/4 - Running real diagnose/impact/write on C...")
     report_c = agent.diagnose(seed_mod.URN_C)
-    writer.write_report(seed_mod.URN_C, report_c, business_context="Generado por scripts/generate_example_outputs.py")
+    writer.write_report(seed_mod.URN_C, report_c, business_context="Generated by scripts/generate_example_outputs.py")
     impact_c = simulator.simulate(seed_mod.URN_C)
     explanation_c = explain(report_c)
 
-    print("4/4 — Corriendo diagnose sobre F para mostrar el reuso de memoria...")
+    print("4/4 - Running diagnose on F to show memory reuse...")
     report_f = agent.diagnose(URN_F)
     previous = writer.find_previous_diagnosis(report_f["pattern_signature"], exclude_urn=URN_F)
 
     EXAMPLES_DIR.mkdir(exist_ok=True)
-    print("\nEscribiendo archivos:")
+    print("\nWriting files:")
     _write_json("diagnosis_output.json", report_c)
     _write_json("impact_output.json", impact_c)
     (EXAMPLES_DIR / "explain_output.txt").write_text(explanation_c + "\n")
-    print(f"  ✓ examples/explain_output.txt")
+    print(f"  OK: examples/explain_output.txt")
     _write_json(
         "memory_reuse_output.json",
         {
@@ -230,13 +230,13 @@ def main() -> None:
     )
 
     assert report_c["pattern_signature"] == report_f["pattern_signature"], (
-        "Las firmas de C y F deberían coincidir — revisar _seed_second_matching_entity."
+        "C and F's signatures should match — check _seed_second_matching_entity."
     )
-    assert previous is not None, "find_previous_diagnosis debería haber encontrado el diagnóstico de C."
+    assert previous is not None, "find_previous_diagnosis should have found C's diagnosis."
 
-    print("\n✅ Listo. Recordatorio: estos outputs vienen de código real contra un grafo")
-    print("   falso en memoria, NO de una instancia de DataHub. Reemplazar antes de la")
-    print("   submission — ver examples/README.md.")
+    print("\nDone. Reminder: these outputs come from real code against a fake")
+    print("   in-memory graph, NOT a DataHub instance. Replace before submission —")
+    print("   see examples/README.md.")
 
 
 if __name__ == "__main__":

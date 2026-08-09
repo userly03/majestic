@@ -59,9 +59,9 @@ def test_poll_once_skips_urn_already_seen(connected_client):
 
 
 def test_poll_once_discards_free_text_false_positive(connected_client):
-    """La búsqueda de texto libre encuentra 'urn:A' (coincidió con la
-    palabra en una descripción), pero el chequeo real de tags dice que no
-    tiene un tag de incidente de verdad — no debe diagnosticarse."""
+    """The free-text search finds 'urn:A' (matched the word in a
+    description), but the real tag check says it doesn't have a genuine
+    incident tag — it must not be diagnosed."""
     listener = _listener_with_mocks(connected_client, urls_by_keyword={"incident": ["urn:A"]})
     listener._diagnoser._check_incident_tags.return_value = None
 
@@ -69,7 +69,7 @@ def test_poll_once_discards_free_text_false_positive(connected_client):
 
     assert processed == 0
     listener._agent.diagnose.assert_not_called()
-    # Igual se marca como visto, para no re-evaluarlo en cada ciclo.
+    # Still gets marked as seen, so it isn't re-evaluated every cycle.
     assert "urn:A" in listener._seen_urns
 
 
@@ -80,7 +80,7 @@ def test_poll_once_dedupes_candidates_found_by_multiple_keywords(connected_clien
     )
     listener._diagnoser._check_incident_tags.return_value = {
         "evidence_type": "incident_tag",
-        "evidence": "tag coincide",
+        "evidence": "tag matches",
         "weight": 0.9,
     }
     listener._agent.diagnose.return_value = {"root_cause_urn": None, "reason": "x", "confidence": 0.0}
@@ -111,7 +111,7 @@ def test_poll_once_survives_search_failure_for_one_keyword(connected_client):
 
     def get_urns_by_filter(entity_types=None, query=None, **kwargs):
         if query == "incident":
-            raise RuntimeError("GMS caído")
+            raise RuntimeError("GMS down")
         return []
 
     connected_client.graph.get_urns_by_filter.side_effect = get_urns_by_filter

@@ -1,13 +1,13 @@
 """
-Recorrido del grafo de linaje en DataHub.
-Permite navegar upstream (hacia los orígenes) y downstream (hacia los
-consumidores) usando un BFS de múltiples saltos sobre scroll_lineage.
+Lineage graph traversal in DataHub.
+Walks upstream (toward origins) and downstream (toward consumers) using a
+multi-hop BFS over scroll_lineage.
 
-API verificada contra acryl-datahub==1.7.0 (DataHubGraph.scroll_lineage,
-datahub.ingestion.graph.openapi.LineageDirection) mediante introspección
-directa del SDK instalado, no por documentación asumida — ver el
-checklist de estado de validación técnica en proyecto-majestic.md sobre
-"nombres de método que pueden variar entre versiones".
+API verified against acryl-datahub==1.7.0 (DataHubGraph.scroll_lineage,
+datahub.ingestion.graph.openapi.LineageDirection) via direct introspection
+of the installed SDK, not assumed from documentation — see the technical
+validation checklist in docs/PITCH.md about "method names that can vary
+between versions."
 """
 
 import logging
@@ -23,26 +23,26 @@ _SCROLL_PAGE_SIZE = 100
 
 
 class LineageTraversal:
-    """Recorre el linaje de un dataset usando la API de DataHub."""
+    """Walks a dataset's lineage using DataHub's API."""
 
     def __init__(self, client: DataHubClient):
         if not client.is_connected:
-            raise RuntimeError("DataHubClient no está conectado. Abortando traversal.")
+            raise RuntimeError("DataHubClient is not connected. Aborting traversal.")
         self.client = client
 
     def get_upstream(self, urn: str, max_hops: int = 3) -> List[Dict[str, Any]]:
-        """Obtiene los datasets upstream (padres) de un URN dado, BFS hasta max_hops."""
+        """Gets the upstream (parent) datasets of a given URN, BFS up to max_hops."""
         return self._bfs(urn, LineageDirection.UPSTREAM, max_hops)
 
     def get_downstream(self, urn: str, max_hops: int = 3) -> List[Dict[str, Any]]:
-        """Obtiene los datasets downstream (hijos/consumidores) de un URN dado, BFS hasta max_hops."""
+        """Gets the downstream (child/consumer) datasets of a given URN, BFS up to max_hops."""
         return self._bfs(urn, LineageDirection.DOWNSTREAM, max_hops)
 
     def _bfs(
         self, root_urn: str, direction: LineageDirection, max_hops: int
     ) -> List[Dict[str, Any]]:
         logger.info(
-            "🔍 Buscando %s de: %s (max %d hops)", direction.value, root_urn, max_hops
+            "Looking up %s from: %s (max %d hops)", direction.value, root_urn, max_hops
         )
 
         visited = {root_urn}
@@ -76,11 +76,11 @@ class LineageTraversal:
 
             return results
         except Exception as exc:
-            logger.error("❌ Error en traversal %s: %s", direction.value, exc)
+            logger.error("Error during %s traversal: %s", direction.value, exc)
             return results
 
     def _one_hop(self, anchor_urn: str, direction: LineageDirection):
-        """Genera tuplas (urn_del_otro_extremo, relationship_type, entity_type) a un salto de anchor_urn."""
+        """Yields (other_end_urn, relationship_type, entity_type) tuples one hop from anchor_urn."""
         scroll_id = None
         while True:
             result = self.client.graph.scroll_lineage(

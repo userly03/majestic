@@ -1,14 +1,14 @@
 """
-Motor de diagnóstico de causa raíz.
-Recorre los nodos del linaje upstream, hop por hop, buscando evidencia
-concreta en el grafo (no especulación): tags de incidente, datasets sin
-owner, datos obsoletos o schemas modificados recientemente.
+Root-cause diagnosis engine.
+Walks the upstream lineage nodes, hop by hop, looking for concrete
+evidence in the graph (never speculation): incident tags, datasets with
+no owner, stale data, or recently modified schemas.
 
-La cadena causal se extiende mientras haya evidencia en cada salto y se
-detiene apenas un salto no aporta ninguna (o al llegar a
-MAX_CAUSAL_LINKS). La causa raíz es el eslabón evidenciado más lejano:
-es el que, siguiendo el patrón "detective ciego" del proyecto, suele
-estar varios saltos upstream del síntoma original.
+The causal chain extends as long as there's evidence at each hop and
+stops as soon as a hop contributes none (or upon reaching
+MAX_CAUSAL_LINKS). The root cause is the farthest evidenced link: it's
+the one that, following the project's "blind detective" pattern, tends to
+be several hops upstream of the original symptom.
 """
 
 import logging
@@ -40,36 +40,38 @@ from src.graph.client import DataHubClient
 
 logger = logging.getLogger(__name__)
 
-# Peso relativo de cada tipo de evidencia: a mayor peso, más determinante
-# se considera para señalar la causa raíz.
+# Relative weight of each evidence type: the higher the weight, the more
+# determinant it's considered when pointing at the root cause.
 #
-# IMPORTANTE — esto es un ranking razonado, no una calibración estadística:
-# no existe (todavía) un dataset de incidentes reales resueltos contra el
-# cual ajustar estos números, y docs/PROPOSAL.md es explícito en no fabricar una
-# precisión que no se midió (mismo criterio que el proyecto ya aplica para
-# no inventar "80% de probabilidad de fallo en 48h" sin datos históricos).
-# Lo que sí se puede defender es el ORDEN relativo, por especificidad y
-# fuerza causal de la señal:
+# IMPORTANT — this is a reasoned ranking, not a statistical calibration:
+# there is no (yet) dataset of real resolved incidents to tune these
+# numbers against, and this project is explicit about not faking a
+# precision that wasn't measured (the same standard the project already
+# applies to not inventing an "80% chance of failure in 48h" without
+# historical data). What CAN be defended is the relative ORDER, by
+# specificity and causal strength of the signal:
 #
-#   incident_tag (0.9)   — señal explícita puesta por un humano; es la
-#                          afirmación más directa posible de "esto es la
-#                          causa", aunque el propio agente no la generó.
-#   schema_change (0.7)  — cambio estructural real y con timestamp; fuerte,
-#                          pero circunstancial (coincide en el tiempo, no
-#                          prueba causalidad).
-#   stale_data (0.5)     — ausencia de actualización; puede ser un ETL
-#                          caído, pero también un fin de semana o una
-#                          fuente que legítimamente actualiza poco.
-#                          Señal más débil por más falsos positivos.
-#   unowned (0.3)        — la más débil: no tener owner no rompe un
-#                          pipeline por sí solo, solo dificulta escalar
-#                          cuando algo más ya se rompió.
+#   incident_tag (0.9)   — an explicit signal set by a human; it's the
+#                          most direct possible statement of "this is the
+#                          cause," even though the agent itself didn't
+#                          generate it.
+#   schema_change (0.7)  — a real structural change with a timestamp;
+#                          strong, but circumstantial (coincides in time,
+#                          doesn't prove causation).
+#   stale_data (0.5)     — absence of an update; could be a downed ETL,
+#                          but could also be a weekend or a source that
+#                          legitimately updates rarely. Weaker signal,
+#                          more false positives.
+#   unowned (0.3)        — the weakest: not having an owner doesn't break
+#                          a pipeline by itself, it only makes it harder
+#                          to escalate once something else has already
+#                          broken.
 #
-# Los valores absolutos por defecto (0.9/0.7/0.5/0.3) no están calibrados
-# contra un dataset de incidentes reales — por eso son configurables vía
-# config/settings.py (MAJESTIC_EVIDENCE_WEIGHT_*), no constantes fijas acá.
-# Un equipo con historial real de incidentes puede recalibrarlos sin tocar
-# este archivo. Ver "Notas técnicas" en README.md.
+# The absolute defaults (0.9/0.7/0.5/0.3) aren't calibrated against a
+# real incident dataset — that's why they're configurable via
+# config/settings.py (MAJESTIC_EVIDENCE_WEIGHT_*), not fixed constants
+# here. A team with a real incident history can recalibrate them without
+# touching this file. See "Technical notes" in README.md.
 _EVIDENCE_WEIGHTS = {
     "incident_tag": EVIDENCE_WEIGHT_INCIDENT_TAG,
     "schema_change": EVIDENCE_WEIGHT_SCHEMA_CHANGE,
@@ -79,24 +81,25 @@ _EVIDENCE_WEIGHTS = {
 
 
 class RootCauseDiagnoser:
-    """Analiza nodos del linaje y determina la causa raíz con evidencia trazable."""
+    """Analyzes lineage nodes and determines the root cause with traceable evidence."""
 
     def __init__(self, client: DataHubClient):
         if not client.is_connected:
-            raise RuntimeError("DataHubClient no está conectado. Abortando diagnóstico.")
+            raise RuntimeError("DataHubClient is not connected. Aborting diagnosis.")
         self.client = client
-        # Cache por instancia de get_aspect: mismo (urn, tipo de aspecto) no
-        # se pide dos veces mientras viva este RootCauseDiagnoser. Sin riesgo
-        # de condición de carrera entre hops paralelos porque el BFS que
-        # arma upstream_nodes ya deduplica URNs (visited set en traversal.py).
+        # Per-instance get_aspect cache: the same (urn, aspect type) isn't
+        # requested twice while this RootCauseDiagnoser is alive. No race
+        # condition risk between parallel hops because the BFS that builds
+        # upstream_nodes already deduplicates URNs (visited set in
+        # traversal.py).
         self._aspect_cache: Dict[Tuple[str, type], Any] = {}
 
     def analyze(self, upstream_nodes: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
-        Dada una lista de nodos upstream (con 'urn' y 'hop'), retorna el
-        diagnóstico: causa raíz, cadena causal evidenciada y confianza.
+        Given a list of upstream nodes (with 'urn' and 'hop'), returns the
+        diagnosis: root cause, evidenced causal chain, and confidence.
         """
-        logger.info("🔬 Analizando %d nodos upstream...", len(upstream_nodes))
+        logger.info("Analyzing %d upstream nodes...", len(upstream_nodes))
 
         nodes_by_hop: Dict[int, List[str]] = {}
         for node in upstream_nodes:
@@ -115,7 +118,7 @@ class RootCauseDiagnoser:
                 if evidence is not None
             ]
             if not hop_evidence:
-                logger.info("⛔ Sin evidencia en hop %d, la cadena se detiene ahí.", hop)
+                logger.info("No evidence at hop %d, the chain stops there.", hop)
                 break
 
             causal_chain.extend(hop_evidence)
@@ -123,7 +126,7 @@ class RootCauseDiagnoser:
         if not causal_chain:
             return {
                 "root_cause_urn": None,
-                "reason": "No se encontró evidencia concreta en el grafo upstream.",
+                "reason": "No concrete evidence found in the upstream graph.",
                 "causal_chain": [],
                 "confidence": 0.0,
                 "ranked_candidates": [],
@@ -146,11 +149,11 @@ class RootCauseDiagnoser:
 
     def _collect_evidence_parallel(self, urns: List[str]) -> List[Optional[Dict[str, Any]]]:
         """
-        Corre _collect_evidence para todos los URNs de un mismo hop en
-        paralelo (hasta MAX_PARALLEL_REQUESTS a la vez) en vez de uno por
-        uno. Con un solo nodo por hop (el caso común) es equivalente a la
-        versión secuencial; el beneficio aparece en nodos con fan-in ancho.
-        Devuelve los resultados en el mismo orden que `urns`.
+        Runs _collect_evidence for every URN in a given hop in parallel
+        (up to MAX_PARALLEL_REQUESTS at a time) instead of one by one.
+        With a single node per hop (the common case) it's equivalent to
+        the sequential version; the benefit shows up on nodes with wide
+        fan-in. Returns results in the same order as `urns`.
         """
         if len(urns) <= 1:
             return [self._collect_evidence(urn) for urn in urns]
@@ -165,7 +168,7 @@ class RootCauseDiagnoser:
         return self._aspect_cache[key]
 
     def _collect_evidence(self, urn: str) -> Optional[Dict[str, Any]]:
-        """Busca evidencia concreta (tag, owner, freshness, schema) sobre un URN."""
+        """Looks for concrete evidence (tag, owner, freshness, schema) on a URN."""
         tag_evidence = self._check_incident_tags(urn)
         if tag_evidence:
             return tag_evidence
@@ -194,7 +197,7 @@ class RootCauseDiagnoser:
                 if keyword in tag_lower:
                     return {
                         "evidence_type": "incident_tag",
-                        "evidence": f"tag '{assoc.tag}' coincide con palabra clave de incidente '{keyword}'",
+                        "evidence": f"tag '{assoc.tag}' matches incident keyword '{keyword}'",
                         "weight": _EVIDENCE_WEIGHTS["incident_tag"],
                     }
         return None
@@ -207,7 +210,7 @@ class RootCauseDiagnoser:
         if age_hours is not None and age_hours <= FRESHNESS_THRESHOLD_HOURS:
             return {
                 "evidence_type": "schema_change",
-                "evidence": f"schema modificado hace {age_hours:.1f}h (umbral {FRESHNESS_THRESHOLD_HOURS}h)",
+                "evidence": f"schema modified {age_hours:.1f}h ago (threshold {FRESHNESS_THRESHOLD_HOURS}h)",
                 "weight": _EVIDENCE_WEIGHTS["schema_change"],
                 "age_hours": age_hours,
             }
@@ -221,7 +224,7 @@ class RootCauseDiagnoser:
         if age_hours is not None and age_hours > FRESHNESS_THRESHOLD_HOURS:
             return {
                 "evidence_type": "stale_data",
-                "evidence": f"sin actualizar hace {age_hours:.1f}h (umbral {FRESHNESS_THRESHOLD_HOURS}h)",
+                "evidence": f"not updated for {age_hours:.1f}h (threshold {FRESHNESS_THRESHOLD_HOURS}h)",
                 "weight": _EVIDENCE_WEIGHTS["stale_data"],
                 "age_hours": age_hours,
             }
@@ -232,7 +235,7 @@ class RootCauseDiagnoser:
         if ownership is not None and not ownership.owners:
             return {
                 "evidence_type": "unowned",
-                "evidence": "dataset sin owner asignado",
+                "evidence": "dataset has no assigned owner",
                 "weight": _EVIDENCE_WEIGHTS["unowned"],
             }
         return None
@@ -251,11 +254,11 @@ class RootCauseDiagnoser:
     @staticmethod
     def _recency_decay(age_hours: Optional[float]) -> float:
         """
-        Decaimiento exponencial por antigüedad — ver docs/LAG_AWARE_DIAGNOSIS.md.
-        Evidencia con `age_hours=0` (recién ocurrida) no se descuenta; a
-        medida que pasa el tiempo el peso decae hacia 0 sin llegar nunca a
-        cero exacto. Sin `age_hours` (incident_tag, unowned: sin timestamp
-        confiable disponible) no hay decaimiento — se devuelve 1.0.
+        Exponential recency decay — see docs/LAG_AWARE_DIAGNOSIS.md.
+        Evidence with `age_hours=0` (just occurred) isn't discounted; as
+        time passes the weight decays toward 0 without ever reaching
+        exact zero. Without `age_hours` (incident_tag, unowned: no
+        reliable timestamp available) there's no decay — returns 1.0.
         """
         if age_hours is None:
             return 1.0
@@ -264,20 +267,19 @@ class RootCauseDiagnoser:
     @staticmethod
     def _apply_adjusted_weights(causal_chain: List[Dict[str, Any]]) -> None:
         """
-        Calcula `adjusted_weight` para cada eslabón de la cadena, mutando
-        `causal_chain` in-place. Dos ajustes sobre el `weight` base (que
-        NUNCA se modifica, para que siga siendo el peso "de catálogo" del
-        tipo de evidencia):
+        Computes `adjusted_weight` for every link in the chain, mutating
+        `causal_chain` in place. Two adjustments on top of the base
+        `weight` (which is NEVER modified, so it keeps being the
+        evidence type's "catalog" weight):
 
-        1. Decaimiento por antigüedad (`_recency_decay`), solo para
-           evidencia con `age_hours` disponible.
-        2. Descuento por herencia: si el mismo `evidence_type` aparece en
-           un hop más lejano (más upstream), el hop más cercano al target
-           probablemente está heredando el problema, no aportando una
-           señal independiente — se multiplica por
-           UPSTREAM_INHERITANCE_DISCOUNT.
+        1. Recency decay (`_recency_decay`), only for evidence with
+           `age_hours` available.
+        2. Inheritance discount: if the same `evidence_type` appears at a
+           farther hop (more upstream), the closer-to-target hop is
+           likely inheriting the problem, not contributing an independent
+           signal — multiplied by UPSTREAM_INHERITANCE_DISCOUNT.
 
-        Ver docs/LAG_AWARE_DIAGNOSIS.md para el razonamiento completo.
+        See docs/LAG_AWARE_DIAGNOSIS.md for the full reasoning.
         """
         for link in causal_chain:
             decay = RootCauseDiagnoser._recency_decay(link.get("age_hours"))
@@ -296,10 +298,10 @@ class RootCauseDiagnoser:
     @staticmethod
     def _confidence(causal_chain: List[Dict[str, Any]]) -> float:
         """
-        Heurística de confianza: promedio del peso AJUSTADO (decaimiento +
-        descuento por herencia) de la cadena, con un pequeño bonus por cada
-        eslabón adicional confirmado. No es una probabilidad calibrada —
-        falta validarla contra incidentes reales.
+        Confidence heuristic: average of the ADJUSTED weight (decay +
+        inheritance discount) across the chain, with a small bonus per
+        additional confirmed link. Not a calibrated probability — still
+        needs validation against real incidents.
         """
         avg_weight = sum(link["adjusted_weight"] for link in causal_chain) / len(causal_chain)
         chain_bonus = min(0.1 * (len(causal_chain) - 1), 0.2)

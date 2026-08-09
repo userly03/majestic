@@ -1,19 +1,18 @@
 """
-Tests de integración: corren contra una instancia real de DataHub, no
-contra mocks. Cierran la brecha que dejan los tests unitarios (100% mocks)
-entre "pasa en CI" y "funciona de verdad" — ver docs/PROPOSAL.md, sección 2.
+Integration tests: run against a real DataHub instance, not mocks. Close
+the gap unit tests (100% mocks) leave between "passes in CI" and "actually
+works."
 
-Se saltan automáticamente a menos que se opte explícitamente por
-correrlos, para que un `pytest` local sin DataHub arriba siga siendo
-instantáneo:
+Skipped automatically unless explicitly opted into, so a local `pytest`
+with no DataHub up stays instant:
 
     MAJESTIC_RUN_INTEGRATION_TESTS=1 pytest -m integration
 
-`test_diagnose_seeded_graph_finds_root_cause_in_b` y
-`test_impact_seeded_graph_finds_dashboard` además requieren haber
-corrido `python3 scripts/seed_demo_data.py` antes — si no, se saltan
-con un mensaje explicando por qué (no fallan: la ausencia de datos
-sembrados no es un bug del código).
+`test_diagnose_seeded_graph_finds_root_cause_in_b` and
+`test_impact_seeded_graph_finds_dashboard` additionally require having
+run `python3 scripts/seed_demo_data.py` beforehand — if not, they skip
+with a message explaining why (they don't fail: missing seeded data
+isn't a code bug).
 """
 
 import os
@@ -36,21 +35,21 @@ _URN_B = "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.marketing_etl,P
 def live_client():
     if not os.getenv("MAJESTIC_RUN_INTEGRATION_TESTS"):
         pytest.skip(
-            "Tests de integración desactivados por defecto. Correr con "
+            "Integration tests disabled by default. Run with "
             "MAJESTIC_RUN_INTEGRATION_TESTS=1 pytest -m integration"
         )
 
     client = DataHubClient()
     if not client.is_connected:
         pytest.skip(
-            "No hay una instancia real de DataHub disponible. "
-            "Ejecuta: datahub docker quickstart"
+            "No real DataHub instance available. "
+            "Run: datahub docker quickstart"
         )
     return client
 
 
 def test_write_then_read_diagnosis_round_trips(live_client):
-    """Ciclo real de write-back: escribe structuredProperties y las lee de vuelta."""
+    """Real write-back cycle: writes structuredProperties and reads them back."""
     from datahub.emitter.mcp import MetadataChangeProposalWrapper
     from datahub.metadata.schema_classes import DatasetPropertiesClass, StatusClass
 
@@ -59,7 +58,7 @@ def test_write_then_read_diagnosis_round_trips(live_client):
             entityUrn=_INTEGRATION_TEST_URN,
             aspect=DatasetPropertiesClass(
                 name="_majestic_integration_test",
-                description="Entidad de test de integración. Seguro de ignorar/borrar.",
+                description="Integration test entity. Safe to ignore/delete.",
             ),
         )
     )
@@ -70,7 +69,7 @@ def test_write_then_read_diagnosis_round_trips(live_client):
     writer = DiagnosisWriter(live_client)
     report = {
         "pattern_signature": "integration_test:0:0:0",
-        "reason": "Test de integración — no es un diagnóstico real.",
+        "reason": "Integration test — not a real diagnosis.",
         "confidence": 0.01,
     }
 
@@ -82,16 +81,16 @@ def test_write_then_read_diagnosis_round_trips(live_client):
 
 
 def test_find_previous_diagnosis_locates_itself(live_client):
-    """Valida en runtime el riesgo #1 de docs/PROPOSAL.md: ¿funciona el filtro
-    de búsqueda (Plan A), o hace falta el fallback de texto libre (Plan B)?"""
+    """Validates the project's biggest known risk at runtime: does the search
+    filter work (Plan A), or is the free-text fallback needed (Plan B)?"""
     writer = DiagnosisWriter(live_client)
     found = writer.find_previous_diagnosis(
         "integration_test:0:0:0", exclude_urn="urn:li:dataset:(urn:li:dataPlatform:hive,_nonexistent,PROD)"
     )
     assert found is not None, (
-        "find_previous_diagnosis no encontró la entidad que "
-        "test_write_then_read_diagnosis_round_trips ya escribió. "
-        "Revisar el nombre del campo de búsqueda en _search_by_pattern_signature."
+        "find_previous_diagnosis didn't find the entity "
+        "test_write_then_read_diagnosis_round_trips already wrote. "
+        "Check the search field name in _search_by_pattern_signature."
     )
     assert found["source_urn"] == _INTEGRATION_TEST_URN
 
@@ -101,7 +100,7 @@ def test_diagnose_seeded_graph_finds_root_cause_in_b(live_client):
     report = agent.diagnose(_URN_C)
 
     if report["upstream_count"] == 0:
-        pytest.skip("No hay lineage sembrado — correr `python3 scripts/seed_demo_data.py` primero.")
+        pytest.skip("No lineage seeded — run `python3 scripts/seed_demo_data.py` first.")
 
     assert report["root_cause_urn"] == _URN_B
     assert report["causal_chain"][0]["evidence_type"] == "incident_tag"
@@ -112,6 +111,6 @@ def test_impact_seeded_graph_finds_dashboard(live_client):
     impact = simulator.simulate(_URN_C)
 
     if impact["affected_datasets"] == 0:
-        pytest.skip("No hay lineage sembrado — correr `python3 scripts/seed_demo_data.py` primero.")
+        pytest.skip("No lineage seeded — run `python3 scripts/seed_demo_data.py` first.")
 
     assert impact["affected_dashboards"] >= 1

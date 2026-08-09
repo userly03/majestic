@@ -1,8 +1,8 @@
 """
-Agente principal de Majestic.
-Recibe una alerta o URN problemático, diagnostica la causa raíz
-y devuelve un informe estructurado con la firma de patrón que la
-Fase 3 (memoria) usará para reconocer el mismo caso en otra entidad.
+Majestic's main agent.
+Takes an alert or a problematic URN, diagnoses the root cause, and
+returns a structured report along with the pattern signature that
+Phase 3 (memory) uses to recognize the same case on another entity.
 """
 
 import logging
@@ -20,25 +20,27 @@ _PLATFORM_RE = re.compile(r"urn:li:dataPlatform:([^,]+)")
 
 
 class MajesticAgent:
-    """Orquestador principal del diagnóstico de causa raíz."""
+    """Main orchestrator of the root-cause diagnosis pipeline."""
 
     def __init__(self, client: DataHubClient):
         self.client = client
         self.traversal = LineageTraversal(client)
         self.diagnoser = RootCauseDiagnoser(client)
-        logger.info("🧠 Agente Majestic inicializado")
+        logger.info("Majestic agent initialized")
 
     def diagnose(self, urn: str) -> Dict[str, Any]:
         """
-        Ejecuta el pipeline completo de diagnóstico para un URN dado.
+        Runs the full diagnosis pipeline for a given URN.
 
-        Pasos:
-            1. Recorrer upstream (y downstream, para la firma estructural).
-            2. Cruzar owners, schemas y tags buscando evidencia real (Fase 2).
-            3. Devolver el informe; la persistencia en el grafo es responsabilidad
-               de DiagnosisWriter (Fase 3), no de este método.
+        Steps:
+            1. Walk upstream (and downstream, for the structural signature).
+            2. Cross-reference owners, schemas, and tags looking for real
+               evidence (Phase 2).
+            3. Return the report; persisting it to the graph is
+               DiagnosisWriter's responsibility (Phase 3), not this
+               method's.
         """
-        logger.info("🩺 Iniciando diagnóstico para: %s", urn)
+        logger.info("Starting diagnosis for: %s", urn)
 
         upstream_nodes = self.traversal.get_upstream(urn, max_hops=DEFAULT_MAX_HOPS)
         downstream_nodes = self.traversal.get_downstream(urn, max_hops=DEFAULT_MAX_HOPS)
@@ -59,12 +61,12 @@ class MajesticAgent:
             ),
         }
 
-        logger.info("✅ Diagnóstico completado: %s", report)
+        logger.info("Diagnosis complete: %s", report)
         return report
 
     @staticmethod
     def _extract_platform(urn: Optional[str]) -> str:
-        """Extrae la plataforma ('hive', 'snowflake', ...) de un URN de DataHub."""
+        """Extracts the platform ('hive', 'snowflake', ...) from a DataHub URN."""
         if not urn:
             return "unknown"
         match = _PLATFORM_RE.search(urn)
@@ -78,24 +80,24 @@ class MajesticAgent:
         target_urn: str,
     ) -> str:
         """
-        Firma determinista 'tipo_anomalia:profundidad:upstream:downstream:plataforma'
-        (ver Fase 3 en proyecto-majestic.md). Permite reconocer la misma
-        estructura causal en otra entidad sin volver a razonar desde cero.
+        Deterministic 'anomaly_type:depth:upstream:downstream:platform'
+        signature (see Phase 3 in docs/PITCH.md). Lets Majestic recognize
+        the same causal structure on another entity without reasoning
+        from scratch.
 
-        El componente de plataforma se agregó (2026-08-08, ver AUDIT_REPORT.md
-        sección 1.4 y Sección 2 ítem 1) porque la firma sin él es demasiado
-        gruesa: dos datasets completamente no relacionados en dominios
-        distintos, con el mismo evidence_type/hop/upstream/downstream,
-        producían la misma firma y el agente los trataba como el mismo
-        incidente. Anclar a la plataforma del nodo causal es una mejora
-        barata (el dato ya viene en el URN, sin llamada extra a DataHub) pero
-        PARCIAL: dos datasets del mismo dominio de negocio pero distinta
-        plataforma ya no colisionan, pero dos datasets de dominios distintos
-        en la MISMA plataforma (p. ej. dos tablas Hive no relacionadas)
-        todavía pueden hacerlo. Por eso `find_previous_diagnosis`
-        (src/memory/writer.py) y el mensaje de reuso en `main.py` tratan
-        siempre la coincidencia como "misma estructura", nunca como "mismo
-        incidente confirmado" — ver la nota en cmd_diagnose.
+        The platform component was added (2026-08-08, see
+        docs/AUDIT_REPORT.md Section 1.4 and Section 2 item 1) because the
+        signature without it is too coarse: two completely unrelated
+        datasets in different domains, with the same evidence_type/hop/
+        upstream/downstream, produced the same signature. Anchoring to the
+        causal node's platform is a cheap improvement (the data already
+        comes from the URN, no extra DataHub call) but a PARTIAL one: two
+        datasets from the same business domain but different platforms no
+        longer collide, but two datasets from different domains on the
+        SAME platform still can. That's why `find_previous_diagnosis`
+        (src/memory/writer.py) and the reuse message in `main.py` always
+        treat a match as "same structure," never as "confirmed same
+        incident" — see the note in cmd_diagnose.
         """
         causal_chain = diagnosis["causal_chain"]
         if not causal_chain:

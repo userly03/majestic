@@ -1,25 +1,25 @@
 """
-Listener de incidentes "lite" — versión polling, no Kafka.
+"Lite" incident listener — polling version, not Kafka.
 
-DataHub publica cada cambio del grafo a Kafka en tiempo real (Metadata
-Change Log). Este módulo NO se conecta a ese stream — hace polling
-periódico a la API REST de DataHub (vía el mismo `DataHubGraph` que usa
-el resto del proyecto, no una llamada HTTP cruda) buscando datasets con
-un tag de incidente que todavía no se hayan visto, y corre el pipeline
-de diagnóstico completo (`MajesticAgent.diagnose`, que internamente usa
-`RootCauseDiagnoser`) sobre cada uno apenas aparece.
+DataHub publishes every graph change to Kafka in real time (Metadata
+Change Log). This module does NOT connect to that stream — it polls
+DataHub's REST API periodically (via the same `DataHubGraph` the rest of
+the project uses, not a raw HTTP call) looking for datasets with an
+incident tag that haven't been seen yet, and runs the full diagnosis
+pipeline (`MajesticAgent.diagnose`, which internally uses
+`RootCauseDiagnoser`) on each one as soon as it appears.
 
-Es deliberadamente la versión simple: sin Kafka, sin persistencia entre
-reinicios (el set de URNs ya procesados vive solo en memoria — si el
-proceso se reinicia, vuelve a diagnosticar lo que ya estaba tageado).
-Suficiente para demostrar el patrón ("Majestic no espera que le
-pregunten") sin la complejidad operativa de un consumer de Kafka real.
+It's deliberately the simple version: no Kafka, no persistence across
+restarts (the set of already-processed URNs lives only in memory — if the
+process restarts, it re-diagnoses whatever was already tagged). Enough to
+demonstrate the pattern ("Majestic doesn't wait to be asked") without the
+operational complexity of a real Kafka consumer.
 
-Uso:
-    python3 -m src.events.listener              # loop infinito, poll cada
-                                                  # LISTENER_POLL_INTERVAL_SECONDS
-    python3 -m src.events.listener --once        # un solo ciclo (para tests/CI)
-    python3 -m src.events.listener --interval 2  # override del intervalo
+Usage:
+    python3 -m src.events.listener              # infinite loop, polls
+                                                  # every LISTENER_POLL_INTERVAL_SECONDS
+    python3 -m src.events.listener --once        # a single cycle (for tests/CI)
+    python3 -m src.events.listener --interval 2  # interval override
 """
 
 import argparse
@@ -37,27 +37,27 @@ logger = logging.getLogger(__name__)
 
 class IncidentListener:
     """
-    Detecta datasets nuevos con tag de incidente y dispara el diagnóstico
-    completo sobre cada uno, apenas una vez por URN.
+    Detects new datasets with an incident tag and triggers the full
+    diagnosis on each one, exactly once per URN.
     """
 
     def __init__(self, client: DataHubClient, poll_interval_seconds: Optional[float] = None):
         if not client.is_connected:
-            raise RuntimeError("DataHubClient no está conectado.")
+            raise RuntimeError("DataHubClient is not connected.")
         self.client = client
         self.poll_interval_seconds = poll_interval_seconds or LISTENER_POLL_INTERVAL_SECONDS
-        # Reutiliza la MISMA lógica de "¿este tag cuenta como incidente?"
-        # que ya usa el diagnóstico normal (diagnoser.py), en vez de
-        # reimplementar el chequeo acá y arriesgar que las dos copias se
-        # desincronicen con el tiempo.
+        # Reuses the SAME "does this tag count as an incident?" logic
+        # already used by the normal diagnosis (diagnoser.py), instead of
+        # reimplementing the check here and risking the two copies
+        # drifting apart over time.
         self._diagnoser = RootCauseDiagnoser(client)
         self._agent = MajesticAgent(client)
         self._seen_urns: Set[str] = set()
 
     def poll_once(self) -> int:
         """
-        Un solo ciclo: busca candidatos, diagnostica los nuevos.
-        Returns: cantidad de incidentes nuevos procesados en este ciclo.
+        A single cycle: looks for candidates, diagnoses the new ones.
+        Returns: how many new incidents were processed in this cycle.
         """
         candidate_urns = self._find_candidate_urns()
         new_urns = sorted(candidate_urns - self._seen_urns)
@@ -66,14 +66,14 @@ class IncidentListener:
         for urn in new_urns:
             self._seen_urns.add(urn)
 
-            # La búsqueda de texto libre puede traer falsos positivos
-            # (la palabra "incident" en una descripción, no en un tag) —
-            # confirmamos con el mismo chequeo real antes de diagnosticar.
+            # The free-text search can bring false positives (the word
+            # "incident" in a description, not a tag) — confirm with the
+            # same real check before diagnosing.
             evidence = self._diagnoser._check_incident_tags(urn)
             if not evidence:
                 logger.debug(
-                    "%s coincidió en la búsqueda de texto pero no tiene un tag de "
-                    "incidente real — se descarta.",
+                    "%s matched the text search but has no real incident "
+                    "tag — discarding.",
                     urn,
                 )
                 continue
@@ -85,15 +85,15 @@ class IncidentListener:
 
     def run(self, once: bool = False) -> None:
         logger.info(
-            "🔔 Listener de incidentes iniciado (polling cada %ss, %s)",
+            "Incident listener started (polling every %ss, %s)",
             self.poll_interval_seconds,
-            "un solo ciclo" if once else "loop continuo",
+            "single cycle" if once else "continuous loop",
         )
         while True:
             try:
                 self.poll_once()
             except Exception:
-                logger.exception("Error en el ciclo de polling — se reintenta en el próximo ciclo.")
+                logger.exception("Error during the polling cycle — will retry next cycle.")
 
             if once:
                 return
@@ -101,10 +101,10 @@ class IncidentListener:
 
     def _find_candidate_urns(self) -> Set[str]:
         """
-        Búsqueda de texto libre (mismo mecanismo que el Plan B de
-        DiagnosisWriter._search_by_pattern_signature, ya validado contra
-        una instancia real) por cada palabra clave de incidente, unida en
-        un solo set de candidatos.
+        Free-text search (same mechanism as DiagnosisWriter's Plan B in
+        `_search_by_pattern_signature`, already validated against a real
+        instance) for every incident keyword, merged into a single
+        candidate set.
         """
         candidates: Set[str] = set()
         for keyword in INCIDENT_TAG_KEYWORDS:
@@ -113,27 +113,27 @@ class IncidentListener:
                     self.client.graph.get_urns_by_filter(entity_types=["dataset"], query=keyword)
                 )
             except Exception as exc:
-                logger.warning("Búsqueda por palabra clave '%s' falló: %s", keyword, exc)
+                logger.warning("Search for keyword '%s' failed: %s", keyword, exc)
         return candidates
 
     def _handle_new_incident(self, urn: str, evidence: Dict) -> None:
-        print(f"\n🔔 Incidente nuevo detectado: {urn}")
+        print(f"\nNew incident detected: {urn}")
         print(f"   {evidence['evidence']}")
 
         report = self._agent.diagnose(urn)
-        print("🩺 Diagnóstico automático:")
-        print(f"   Causa raíz: {report['root_cause_urn'] or '(sin evidencia upstream)'}")
-        print(f"   Razón: {report['reason']}")
-        print(f"   Confianza: {report['confidence'] * 100:.0f}%")
+        print("Automatic diagnosis:")
+        print(f"   Root cause: {report['root_cause_urn'] or '(no upstream evidence)'}")
+        print(f"   Reason: {report['reason']}")
+        print(f"   Confidence: {report['confidence'] * 100:.0f}%")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Listener de incidentes de Majestic (polling, no Kafka).")
+    parser = argparse.ArgumentParser(description="Majestic incident listener (polling, not Kafka).")
     parser.add_argument(
-        "--once", action="store_true", help="Corre un solo ciclo de polling y termina (útil para tests)."
+        "--once", action="store_true", help="Runs a single polling cycle and exits (useful for tests)."
     )
     parser.add_argument(
-        "--interval", type=float, default=None, help="Segundos entre ciclos (default: LISTENER_POLL_INTERVAL_SECONDS)."
+        "--interval", type=float, default=None, help="Seconds between cycles (default: LISTENER_POLL_INTERVAL_SECONDS)."
     )
     args = parser.parse_args()
 
@@ -144,7 +144,7 @@ def main() -> None:
 
     client = DataHubClient()
     if not client.is_connected:
-        print("⚠️  No se pudo conectar a DataHub. Ejecuta: datahub docker quickstart")
+        print("Could not connect to DataHub. Run: datahub docker quickstart")
         raise SystemExit(1)
 
     listener = IncidentListener(client, poll_interval_seconds=args.interval)

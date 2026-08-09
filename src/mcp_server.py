@@ -1,22 +1,21 @@
 """
-Servidor MCP de Majestic — expone `diagnose`/`impact` como herramientas
-invocables por otros agentes, no solo por la CLI.
+Majestic's MCP server — exposes `diagnose`/`impact` as tools other agents
+can invoke, not just the CLI.
 
-`main.py` ya es una capa fina sobre `MajesticAgent`/`ImpactSimulator`
-(ver src/core/agent.py, src/impact/simulator.py) — este módulo es un
-segundo "frontend" sobre el mismo core, sin tocar esa lógica. No hay
-razonamiento nuevo acá: cada tool arma un DataHubClient (reutilizado
-entre llamadas, ver `_get_client`) y delega en las mismas clases que ya
-usa `main.py`.
+`main.py` is already a thin layer over `MajesticAgent`/`ImpactSimulator`
+(see src/core/agent.py, src/impact/simulator.py) — this module is a
+second "frontend" over the same core, without touching that logic. There
+is no new reasoning here: each tool builds a DataHubClient (reused across
+calls, see `_get_client`) and delegates to the same classes `main.py`
+already uses.
 
-Uso:
-    python3 -m src.mcp_server              # sirve por stdio (el transporte
-                                              # que usan Claude Desktop y la
-                                              # mayoría de los clientes MCP)
+Usage:
+    python3 -m src.mcp_server              # serves over stdio (the
+                                              # transport used by Claude
+                                              # Desktop and most MCP clients)
 
-Requiere el extra `mcp` (ver requirements-dev.txt o `pip install mcp`) —
-no es una dependencia de producción de la CLI, así que no está en
-requirements.txt.
+Requires the `mcp` extra (see requirements-dev.txt or `pip install mcp`)
+— not a production dependency of the CLI, so it isn't in requirements.txt.
 """
 
 import logging
@@ -34,16 +33,16 @@ logger = logging.getLogger(__name__)
 mcp_app = MCPServer(
     "majestic",
     instructions=(
-        "Diagnostica causa raíz y simula impacto downstream sobre entidades "
-        "de DataHub (datasets, dashboards) a partir de su URN. Usa evidencia "
-        "real del grafo de linaje (tags de incidente, ownership, freshness, "
-        "cambios de schema) — nunca especula."
+        "Diagnoses the root cause and simulates downstream impact on "
+        "DataHub entities (datasets, dashboards) given their URN. Uses "
+        "real evidence from the lineage graph (incident tags, ownership, "
+        "freshness, schema changes) — never speculates."
     ),
 )
 
-# Un solo DataHubClient reutilizado entre llamadas: reconectar en cada tool
-# call pagaría el costo de conexión (retry + test_connection) por request,
-# innecesario dentro de una misma sesión del servidor MCP.
+# A single DataHubClient reused across calls: reconnecting on every tool
+# call would pay the connection cost (retry + test_connection) per
+# request, unnecessary within a single MCP server session.
 _client: Optional[DataHubClient] = None
 
 
@@ -53,7 +52,7 @@ def _get_client() -> DataHubClient:
         _client = DataHubClient()
         if not _client.is_connected:
             raise RuntimeError(
-                "No se pudo conectar a DataHub. Ejecuta: datahub docker quickstart"
+                "Could not connect to DataHub. Run: datahub docker quickstart"
             )
     return _client
 
@@ -61,18 +60,18 @@ def _get_client() -> DataHubClient:
 @mcp_app.tool()
 def majestic_diagnose(urn: str, write: bool = False) -> Dict[str, Any]:
     """
-    Diagnostica la causa raíz de un dataset/dashboard de DataHub.
+    Diagnoses the root cause of a DataHub dataset/dashboard.
 
-    Recorre el linaje upstream buscando evidencia real (tags de incidente,
-    ownership, freshness, cambios de schema) y devuelve la cadena causal
-    encontrada, la causa raíz elegida y una lista de candidatos rankeados
-    (mecanismo lag-aware: decaimiento por antigüedad + descuento por
-    herencia — ver docs/LAG_AWARE_DIAGNOSIS.md).
+    Walks the upstream lineage looking for real evidence (incident tags,
+    ownership, freshness, schema changes) and returns the causal chain
+    found, the chosen root cause, and a list of ranked candidates
+    (lag-aware mechanism: recency decay + inheritance discount — see
+    docs/LAG_AWARE_DIAGNOSIS.md).
 
     Args:
-        urn: URN completo del dataset/dashboard a diagnosticar.
-        write: si es True, persiste el diagnóstico en DataHub como
-            structuredProperties (memoria episódica reutilizable).
+        urn: full URN of the dataset/dashboard to diagnose.
+        write: if True, persists the diagnosis in DataHub as
+            structuredProperties (reusable episodic memory).
     """
     client = _get_client()
     report = MajesticAgent(client).diagnose(urn)
@@ -87,15 +86,15 @@ def majestic_diagnose(urn: str, write: bool = False) -> Dict[str, Any]:
 @mcp_app.tool()
 def majestic_impact(urn: str) -> Dict[str, Any]:
     """
-    Simula el impacto downstream de un cambio propuesto sobre un dataset.
+    Simulates the downstream impact of a proposed change on a dataset.
 
-    Recorre el linaje downstream (mismo traversal que `majestic_diagnose`,
-    invertido) y devuelve cuántos datasets y dashboards se verían
-    afectados, quiénes son sus owners, y un `risk_level` categórico
+    Walks the lineage downstream (same traversal as `majestic_diagnose`,
+    inverted) and returns how many datasets and dashboards would be
+    affected, who owns them, and a categorical `risk_level`
     (none/low/medium/high).
 
     Args:
-        urn: URN completo del dataset sobre el que se planea el cambio.
+        urn: full URN of the dataset the change is planned for.
     """
     client = _get_client()
     return ImpactSimulator(client).simulate(urn)

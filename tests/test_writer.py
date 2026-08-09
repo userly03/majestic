@@ -9,30 +9,30 @@ from src.memory.writer import DiagnosisWriter, _sanitize_urn_lookalikes
 
 _REPORT = {
     "pattern_signature": "stale_data:2:3:1",
-    "reason": "algo se rompió",
+    "reason": "something broke",
     "confidence": 0.55,
 }
 
 
 def test_sanitize_urn_lookalikes_breaks_urn_prefix():
-    text = "urn:li:dataset:(urn:li:dataPlatform:hive,x.y,PROD) (hop 1): sin owner"
+    text = "urn:li:dataset:(urn:li:dataPlatform:hive,x.y,PROD) (hop 1): no owner"
 
     sanitized = _sanitize_urn_lookalikes(text)
 
     assert "urn:li:" not in sanitized
     assert "urn:​li:" in sanitized
-    # Visualmente idéntico (el espacio de ancho cero no se ve al imprimir).
+    # Visually identical (the zero-width space isn't visible when printed).
     assert sanitized.replace("​", "") == text
 
 
 def test_sanitize_urn_lookalikes_leaves_text_without_urns_untouched():
-    text = "dataset sin owner asignado, sin relación con ningún URN"
+    text = "dataset has no assigned owner, no relation to any URN"
 
     assert _sanitize_urn_lookalikes(text) == text
 
 
 def test_sanitize_urn_lookalikes_handles_multiple_occurrences():
-    text = "urn:li:dataset:(a) heredó de urn:li:dataset:(b)"
+    text = "urn:li:dataset:(a) inherited from urn:li:dataset:(b)"
 
     sanitized = _sanitize_urn_lookalikes(text)
 
@@ -68,7 +68,7 @@ def test_write_report_skips_business_context_when_not_given(connected_client):
 
 def test_write_report_includes_business_context_when_given(connected_client):
     writer = DiagnosisWriter(connected_client)
-    writer.write_report("urn:li:dataset:(x)", _REPORT, business_context="lección aprendida")
+    writer.write_report("urn:li:dataset:(x)", _REPORT, business_context="lesson learned")
 
     mcps = connected_client.graph.emit_mcps.call_args[0][0]
     patch_bytes = b"".join(mcp.aspect.value for mcp in mcps if mcp.aspect is not None)
@@ -85,7 +85,7 @@ def test_read_diagnosis_parses_structured_properties(connected_client):
     connected_client.graph.get_aspect.return_value = StructuredPropertiesClass(
         properties=[
             _assignment("majestic.patternSignature", "stale_data:2:3:1"),
-            _assignment("majestic.diagnosis", "algo se rompió"),
+            _assignment("majestic.diagnosis", "something broke"),
             _assignment("majestic.confidenceScore", 0.55),
         ]
     )
@@ -94,7 +94,7 @@ def test_read_diagnosis_parses_structured_properties(connected_client):
     result = writer.read_diagnosis("urn:li:dataset:(x)")
 
     assert result["pattern_signature"] == "stale_data:2:3:1"
-    assert result["reason"] == "algo se rompió"
+    assert result["reason"] == "something broke"
     assert result["confidence"] == 0.55
 
 
@@ -120,11 +120,11 @@ def test_find_previous_diagnosis_skips_excluded_urn(connected_client):
 
 
 def test_find_previous_diagnosis_rejects_plan_b_false_positive(connected_client):
-    # Plan B es texto libre: puede traer un candidato cuya firma real no
-    # coincide exactamente. No debe darse por buena esa coincidencia parcial.
+    # Plan B is free text: it can bring a candidate whose real signature
+    # doesn't exactly match. That partial match must not be accepted.
     connected_client.graph.get_urns_by_filter.return_value = iter(["A"])
     writer = DiagnosisWriter(connected_client)
-    writer.read_diagnosis = MagicMock(return_value={"pattern_signature": "otra_firma:9:9:9"})
+    writer.read_diagnosis = MagicMock(return_value={"pattern_signature": "other_signature:9:9:9"})
 
     result = writer.find_previous_diagnosis("sig:1:2:3")
 
@@ -149,7 +149,7 @@ def test_find_previous_diagnosis_skips_candidate_that_fails_to_read(connected_cl
 
 def test_search_falls_back_to_plan_b_when_plan_a_raises(connected_client):
     connected_client.graph.get_urns_by_filter.side_effect = [
-        Exception("campo de búsqueda inválido"),
+        Exception("invalid search field"),
         iter(["B"]),
     ]
     writer = DiagnosisWriter(connected_client)
@@ -158,7 +158,7 @@ def test_search_falls_back_to_plan_b_when_plan_a_raises(connected_client):
 
     assert result == ["B"]
     assert connected_client.graph.get_urns_by_filter.call_count == 2
-    # Plan B debe ser una búsqueda de texto libre (query=), no extraFilters.
+    # Plan B must be a free-text search (query=), not extraFilters.
     _, plan_b_kwargs = connected_client.graph.get_urns_by_filter.call_args_list[1]
     assert plan_b_kwargs.get("query") == "sig"
 

@@ -1,6 +1,6 @@
 """
-Spike de validación: prueba que la conexión con DataHub funciona.
-Este es el primer script que corremos para verificar el setup.
+Validation spike: tests that the DataHub connection works.
+This is the first script run to verify the setup.
 """
 
 import logging
@@ -18,16 +18,16 @@ logging.basicConfig(
 
 
 def main():
-    print("🚀 Iniciando prueba de conexión Majestic...")
+    print("Starting Majestic connection test...")
 
     client = DataHubClient()
 
     if client.is_connected:
-        print("🎉 ¡Éxito! DataHub responde.")
-        print("Ahora podemos empezar a construir el agente.")
+        print("Success! DataHub is responding.")
+        print("We can now start building the agent.")
     else:
-        print("⚠️  No se pudo conectar. Asegúrate de tener DataHub corriendo.")
-        print("   Ejecuta: datahub docker quickstart")
+        print("Could not connect. Make sure DataHub is running.")
+        print("   Run: datahub docker quickstart")
 
 
 if __name__ == "__main__":

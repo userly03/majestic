@@ -1,24 +1,24 @@
 """
-Spike de validación: confirma el ciclo completo de memoria episódica
-(escritura de structuredProperties + lectura de vuelta) contra una
-instancia real de DataHub, antes de confiar en él para correr el agente.
+Validation spike: confirms the full episodic-memory cycle (writing
+structuredProperties + reading them back) against a real DataHub
+instance, before relying on it to run the agent.
 
-A diferencia de DiagnosisWriter.write_report() (que traga la excepción y
-devuelve True/False para tener una API limpia), este spike arma el patch
-a mano para poder:
-  1. imprimir el JSON exacto que se va a enviar ANTES de enviarlo, y
-  2. si emit_mcps falla, mostrar el traceback completo — no solo un booleano.
-Es exactamente el tipo de cosa que un spike debe hacer: saltarse la
-abstracción de producción para poder debuggear el mecanismo en crudo.
+Unlike DiagnosisWriter.write_report() (which swallows the exception and
+returns True/False for a clean API), this spike builds the patch by hand
+so it can:
+  1. print the exact JSON that's about to be sent BEFORE sending it, and
+  2. if emit_mcps fails, show the full traceback — not just a boolean.
+This is exactly the kind of thing a spike should do: bypass the
+production abstraction to debug the raw mechanism.
 
-Requiere que config/agent_memory_property.yaml ya haya sido aplicado:
+Requires config/agent_memory_property.yaml to already be applied:
     datahub properties upsert -f config/agent_memory_property.yaml
 
-Uso:
+Usage:
     python3 scripts/spike_writeback_test.py [urn]
 
-Si no se pasa un URN, usa el dataset de muestra que trae
-`datahub docker quickstart` por defecto.
+If no URN is passed, uses the sample dataset `datahub docker quickstart`
+ships by default.
 """
 
 import json
@@ -51,7 +51,7 @@ DEFAULT_TEST_URN = "urn:li:dataset:(urn:li:dataPlatform:hive,SampleHiveDataset,P
 
 _FAKE_REPORT = {
     "pattern_signature": "spike_test:1:0:0",
-    "reason": "Spike de validación de write-back — no es un diagnóstico real.",
+    "reason": "Write-back validation spike — not a real diagnosis.",
     "confidence": 0.01,
 }
 
@@ -63,12 +63,12 @@ def _build_patch(urn: str):
         .add_structured_property(_PROP_DIAGNOSIS, _FAKE_REPORT["reason"])
         .add_structured_property(_PROP_CONFIDENCE, float(_FAKE_REPORT["confidence"]))
         .add_structured_property(_PROP_DIAGNOSED_AT, datetime.now(timezone.utc).isoformat())
-        .add_structured_property(_PROP_BUSINESS_CONTEXT, "Escrito por spike_writeback_test.py")
+        .add_structured_property(_PROP_BUSINESS_CONTEXT, "Written by spike_writeback_test.py")
     )
 
 
 def _print_mcps(mcps) -> None:
-    print("📦 Payload que se va a enviar a DataHub:")
+    print("Payload about to be sent to DataHub:")
     for mcp in mcps:
         print(f"  entityUrn:  {mcp.entityUrn}")
         print(f"  entityType: {mcp.entityType}")
@@ -82,40 +82,40 @@ def _print_mcps(mcps) -> None:
 
 def main() -> None:
     urn = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_TEST_URN
-    print(f"🚀 Spike write-back sobre: {urn}")
+    print(f"Write-back spike on: {urn}")
 
     client = DataHubClient()
     if not client.is_connected:
-        print("⚠️  No se pudo conectar. Ejecuta: datahub docker quickstart")
+        print("Could not connect. Run: datahub docker quickstart")
         sys.exit(1)
 
     writer = DiagnosisWriter(client)
 
-    print("1/2 — Escribiendo diagnóstico de prueba...")
+    print("1/2 - Writing test diagnosis...")
     mcps = _build_patch(urn).build()
     _print_mcps(mcps)
 
     try:
         client.graph.emit_mcps(mcps)
     except Exception:
-        print("\n❌ Falló emit_mcps. Traceback completo:\n")
+        print("\nemit_mcps failed. Full traceback:\n")
         traceback.print_exc()
         print(
-            "\nRevisa: ¿está aplicado config/agent_memory_property.yaml? "
-            "¿el URN existe? ¿el token tiene permiso de escritura?"
+            "\nCheck: is config/agent_memory_property.yaml applied? "
+            "does the URN exist? does the token have write permission?"
         )
         sys.exit(1)
 
-    print("✅ emit_mcps no lanzó excepción.")
+    print("emit_mcps didn't raise an exception.")
 
-    print("2/2 — Leyendo diagnóstico de vuelta...")
+    print("2/2 - Reading the diagnosis back...")
     read_back = writer.read_diagnosis(urn)
 
     if read_back and read_back["pattern_signature"] == _FAKE_REPORT["pattern_signature"]:
-        print("🎉 ¡Éxito! El ciclo de memoria episódica funciona:")
+        print("Success! The episodic memory cycle works:")
         print(read_back)
     else:
-        print("❌ La lectura no coincide con lo escrito (o vino vacía):")
+        print("What was read doesn't match what was written (or came back empty):")
         print(read_back)
         sys.exit(1)
 

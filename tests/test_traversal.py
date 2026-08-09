@@ -87,20 +87,20 @@ def test_get_downstream_captures_entity_type(connected_client):
 
 
 def test_get_upstream_paginates_multi_page_response(connected_client):
-    # scroll_lineage puede devolver la relación en varias páginas para un
-    # mismo anchor; _one_hop debe seguir el scroll_id hasta que sea None y
-    # combinar los resultados de todas las páginas, no solo la primera.
+    # scroll_lineage can return the relationship across several pages for
+    # the same anchor; _one_hop must follow scroll_id until it's None and
+    # merge results from every page, not just the first.
     call_scroll_ids = []
 
     def side_effect(*, urns, direction, count, scroll_id):
         call_scroll_ids.append(scroll_id)
         if scroll_id is None:
-            # Primera página: trae un scroll_id para pedir la segunda.
+            # First page: brings a scroll_id to request the second one.
             return _scroll_result([_rel(source_urn="B1", dest_urn="A")], scroll_id="page-2")
         if scroll_id == "page-2":
-            # Segunda página: sin más scroll_id, acá termina la paginación.
+            # Second page: no more scroll_id, pagination ends here.
             return _scroll_result([_rel(source_urn="B2", dest_urn="A")], scroll_id=None)
-        raise AssertionError(f"scroll_id inesperado: {scroll_id!r}")
+        raise AssertionError(f"unexpected scroll_id: {scroll_id!r}")
 
     connected_client.graph.scroll_lineage.side_effect = side_effect
 
@@ -116,6 +116,6 @@ def test_traversal_raises_if_client_not_connected(connected_client):
     connected_client.is_connected = False
     try:
         LineageTraversal(connected_client)
-        assert False, "debería haber lanzado RuntimeError"
+        assert False, "should have raised RuntimeError"
     except RuntimeError:
         pass

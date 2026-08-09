@@ -25,7 +25,7 @@ def test_no_downstream_is_low_risk_and_not_blocked(connected_client):
     result = assessor.assess("A", {"risk_level": "none"})
 
     assert result["health_score"] == 1.0
-    assert result["risk_label"] == "BAJO"
+    assert result["risk_label"] == "LOW"
     assert result["should_block"] is False
 
 
@@ -55,7 +55,7 @@ def test_high_risk_level_with_orphaned_downstream_blocks(connected_client):
 
     result = assessor.assess("A", {"risk_level": "high"})
 
-    assert result["risk_label"] == "ALTO"
+    assert result["risk_label"] == "HIGH"
     assert result["should_block"] is True
 
 

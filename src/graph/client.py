@@ -1,11 +1,11 @@
 """
-Cliente hacia DataHub GMS (Graph Management Service).
-Encapsula toda la comunicación con DataHub: conexión, lineage y
-lectura/escritura de aspectos (incluidas structured properties).
+Client toward DataHub GMS (Graph Management Service).
+Wraps all communication with DataHub: connection, lineage, and
+reading/writing aspects (including structured properties).
 
-Usa DataHubGraph (no solo el emitter REST, del que hereda) porque el
-traversal de lineage y el write-back de structured properties requieren
-su API de consulta, no solo de emisión.
+Uses DataHubGraph (not just the REST emitter it inherits from) because
+lineage traversal and structured-property write-back need its query API,
+not just emission.
 """
 
 import logging
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class DataHubClient:
-    """Cliente reutilizable para interactuar con DataHub."""
+    """Reusable client for interacting with DataHub."""
 
     def __init__(
         self,
@@ -44,14 +44,14 @@ class DataHubClient:
         self.server = server_url or DATAHUB_GMS_URL
         self.token = token or DATAHUB_GMS_TOKEN
 
-        logger.info("🔗 Inicializando DataHubClient → %s", self.server)
+        logger.info("Initializing DataHubClient -> %s", self.server)
 
         try:
             self.graph = self._connect_with_retry()
-            logger.info("✅ Conexión exitosa con DataHub GMS")
+            logger.info("Successfully connected to DataHub GMS")
         except Exception as exc:
             logger.error(
-                "❌ No se pudo conectar a DataHub tras %d intentos: %s",
+                "Could not connect to DataHub after %d attempts: %s",
                 CONNECT_RETRY_ATTEMPTS,
                 exc,
             )
@@ -69,11 +69,12 @@ class DataHubClient:
     )
     def _connect_with_retry(self) -> DataHubGraph:
         """
-        Intenta conectar hasta CONNECT_RETRY_ATTEMPTS veces con backoff
-        exponencial. Si DataHub está reiniciando o momentáneamente no
-        responde, esto evita que el agente muera en el primer intento.
-        Si los reintentos se agotan, relanza la excepción original
-        (reraise=True) para que el try/except del constructor la capture.
+        Tries to connect up to CONNECT_RETRY_ATTEMPTS times with
+        exponential backoff. If DataHub is restarting or momentarily
+        unresponsive, this keeps the agent from dying on the first
+        attempt. If retries are exhausted, re-raises the original
+        exception (reraise=True) so the constructor's try/except catches
+        it.
         """
         graph = DataHubGraph(
             DatahubClientConfig(

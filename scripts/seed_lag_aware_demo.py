@@ -1,35 +1,35 @@
 """
-Siembra un tercer escenario de demo, pensado específicamente para mostrar
-el mecanismo "lag-aware" (ver docs/LAG_AWARE_DIAGNOSIS.md) en el video —
-`seed_demo_data.py` (A→B→C) no lo ejercita, porque solo tiene una
-evidencia por diagnóstico.
+Seeds a third demo scenario, designed specifically to show off the
+"lag-aware" mechanism (see docs/LAG_AWARE_DIAGNOSIS.md) in the video —
+`seed_demo_data.py` (A->B->C) doesn't exercise it, because it only has
+one piece of evidence per diagnosis.
 
-Topología (fan-in, no lineal como A→B→C): dos datasets independientes,
-`inventory_recent` e `inventory_legacy`, alimentan directamente al mismo
-target `logistics_report` — mismo hop (1), mismo tipo de evidencia
-(`stale_data`), incluso el mismo peso base (0.5). La única diferencia es
-CUÁNDO se pusieron obsoletos:
+Topology (fan-in, not linear like A->B->C): two independent datasets,
+`inventory_recent` and `inventory_legacy`, feed directly into the same
+target `logistics_report` — same hop (1), same evidence type
+(`stale_data`), even the same base weight (0.5). The only difference is
+WHEN they went stale:
 
-  - inventory_recent: dejó de actualizarse hace ~30h (recién cruzó el
-    umbral de staleness de 24h — "se acaba de romper").
-  - inventory_legacy: lleva ~800h (~33 días) sin actualizarse — obsoleto
-    crónico, probablemente un dataset de baja prioridad que nadie
-    prioriza, no un incidente activo.
+  - inventory_recent: stopped updating ~30h ago (just crossed the 24h
+    staleness threshold — "just broke").
+  - inventory_legacy: hasn't updated in ~800h (~33 days) — chronically
+    stale, likely a low-priority dataset nobody prioritizes, not an
+    active incident.
 
-Sin el mecanismo lag-aware, ambos pesarían exactamente igual (0.5) y
-`ranked_candidates` los mostraría empatados. Con el decaimiento por
-antigüedad, `inventory_recent` debería rankear muy por encima de
-`inventory_legacy` — ese contraste es el punto de la demo.
+Without the lag-aware mechanism, both would weigh exactly the same (0.5)
+and `ranked_candidates` would show them tied. With recency decay,
+`inventory_recent` should rank well above `inventory_legacy` — that
+contrast is the point of the demo.
 
-Uso:
+Usage:
     python3 scripts/seed_lag_aware_demo.py
 
-Después de correrlo:
+After running it:
     python3 main.py diagnose "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.logistics_report,PROD)"
 
-Nota: igual que seed_demo_data.py, la indexación de grafo/búsqueda de
-DataHub es asíncrona — si el traversal no encuentra el lineage de
-inmediato, esperar unos segundos y reintentar.
+Note: same as seed_demo_data.py, DataHub's graph/search indexing is
+asynchronous — if the traversal doesn't find the lineage right away,
+wait a few seconds and retry.
 """
 
 import logging
@@ -71,8 +71,8 @@ DASHBOARD_URN = "urn:li:dashboard:(looker,majestic_demo.logistics_dashboard)"
 
 _ACTOR = "urn:li:corpuser:majestic_seed"
 
-_RECENT_STALE_HOURS = 30  # recién cruzó el umbral de 24h
-_LEGACY_STALE_HOURS = 800  # ~33 días, obsoleto crónico
+_RECENT_STALE_HOURS = 30  # just crossed the 24h threshold
+_LEGACY_STALE_HOURS = 800  # ~33 days, chronically stale
 
 
 def _audit_stamp() -> AuditStampClass:
@@ -86,14 +86,14 @@ def _hours_ago_millis(hours: float) -> int:
 def _emit(client: DataHubClient, urn: str, aspect) -> None:
     mcp = MetadataChangeProposalWrapper(entityUrn=urn, aspect=aspect)
     client.graph.emit_mcp(mcp)
-    logger.info("  ✓ %s → %s", type(aspect).__name__, urn)
+    logger.info("  OK: %s -> %s", type(aspect).__name__, urn)
 
 
 def seed(client: DataHubClient) -> None:
-    print("1/3 — Creando inventory_recent (obsoleto hace ~30h) e inventory_legacy (obsoleto hace ~33 días)...")
+    print("1/3 - Creating inventory_recent (stale for ~30h) and inventory_legacy (stale for ~33 days)...")
     _emit(client, URN_RECENT, DatasetPropertiesClass(
         name="inventory_recent",
-        description="[Majestic demo] Recién se puso obsoleto — señal de incidente activo.",
+        description="[Majestic demo] Just went stale — signal of an active incident.",
         lastModified=TimeStampClass(time=_hours_ago_millis(_RECENT_STALE_HOURS)),
     ))
     _emit(client, URN_RECENT, StatusClass(removed=False))
@@ -103,7 +103,7 @@ def seed(client: DataHubClient) -> None:
 
     _emit(client, URN_LEGACY, DatasetPropertiesClass(
         name="inventory_legacy",
-        description="[Majestic demo] Obsoleto crónico — mismo tipo de evidencia que inventory_recent, pero mucho más viejo.",
+        description="[Majestic demo] Chronically stale — same evidence type as inventory_recent, but much older.",
         lastModified=TimeStampClass(time=_hours_ago_millis(_LEGACY_STALE_HOURS)),
     ))
     _emit(client, URN_LEGACY, StatusClass(removed=False))
@@ -113,23 +113,23 @@ def seed(client: DataHubClient) -> None:
 
     _emit(client, URN_TARGET, DatasetPropertiesClass(
         name="logistics_report",
-        description="[Majestic demo] Target del escenario lag-aware — dos causas candidatas al mismo hop.",
+        description="[Majestic demo] Target of the lag-aware scenario — two candidate causes at the same hop.",
     ))
     _emit(client, URN_TARGET, StatusClass(removed=False))
     _emit(client, URN_TARGET, OwnershipClass(
         owners=[OwnerClass(owner=_ACTOR, type=OwnershipTypeClass.TECHNICAL_OWNER)]
     ))
 
-    print("2/3 — Encadenando lineage: inventory_recent + inventory_legacy → logistics_report (fan-in, mismo hop)...")
+    print("2/3 - Chaining lineage: inventory_recent + inventory_legacy -> logistics_report (fan-in, same hop)...")
     _emit(client, URN_TARGET, UpstreamLineageClass(upstreams=[
         UpstreamClass(dataset=URN_RECENT, type=DatasetLineageTypeClass.TRANSFORMED, auditStamp=_audit_stamp()),
         UpstreamClass(dataset=URN_LEGACY, type=DatasetLineageTypeClass.TRANSFORMED, auditStamp=_audit_stamp()),
     ]))
 
-    print("3/3 — Creando dashboard downstream de logistics_report...")
+    print("3/3 - Creating a dashboard downstream of logistics_report...")
     _emit(client, DASHBOARD_URN, DashboardInfoClass(
-        title="[Majestic demo] Dashboard de Logística",
-        description="Dashboard sintético del escenario lag-aware.",
+        title="[Majestic demo] Logistics Dashboard",
+        description="Synthetic dashboard for the lag-aware scenario.",
         lastModified=ChangeAuditStampsClass(created=_audit_stamp(), lastModified=_audit_stamp()),
         datasets=[URN_TARGET],
     ))
@@ -138,26 +138,26 @@ def seed(client: DataHubClient) -> None:
 def main() -> None:
     client = DataHubClient()
     if not client.is_connected:
-        print("⚠️  No se pudo conectar. Ejecuta: datahub docker quickstart")
+        print("Could not connect. Run: datahub docker quickstart")
         sys.exit(1)
 
-    print("🌱 Sembrando escenario lag-aware para Majestic...\n")
+    print("Seeding Majestic's lag-aware scenario...\n")
     seed(client)
 
     print(
-        "\n🎉 Escenario sembrado. Diagnosticar logistics_report debería devolver "
-        "2 candidatos rankeados con el mismo evidence_type (stale_data) y el mismo "
-        "peso base (0.5) — pero inventory_recent (~30h obsoleto) debería rankear muy "
-        "por encima de inventory_legacy (~800h obsoleto) gracias al decaimiento por antigüedad:"
+        "\nScenario seeded. Diagnosing logistics_report should return 2 ranked "
+        "candidates with the same evidence_type (stale_data) and the same base "
+        "weight (0.5) — but inventory_recent (~30h stale) should rank well above "
+        "inventory_legacy (~800h stale) thanks to recency decay:"
     )
-    print(f"   inventory_recent (reciente) {URN_RECENT}")
-    print(f"   inventory_legacy (crónico)  {URN_LEGACY}")
-    print(f"   logistics_report (target)   {URN_TARGET}")
-    print(f"\nProbar con:")
+    print(f"   inventory_recent (recent) {URN_RECENT}")
+    print(f"   inventory_legacy (chronic) {URN_LEGACY}")
+    print(f"   logistics_report (target)  {URN_TARGET}")
+    print(f"\nTry it with:")
     print(f'  python3 main.py diagnose "{URN_TARGET}"')
     print(
-        "\nSi el traversal no encuentra el lineage de inmediato, esperar unos "
-        "segundos (la indexación de grafo/búsqueda de DataHub es asíncrona) y reintentar."
+        "\nIf the traversal doesn't find the lineage right away, wait a few "
+        "seconds (DataHub's graph/search indexing is asynchronous) and retry."
     )
 
 
