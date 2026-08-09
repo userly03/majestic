@@ -1,20 +1,34 @@
-# Ejemplos
+# Examples
 
-El checklist de submission de Devpost pide `examples/` con **outputs reales**:
-un diagnóstico generado de verdad y una captura de la structured property
-en la UI de DataHub.
+Devpost's submission checklist asks for `examples/` with **real outputs**:
+an actually-generated diagnosis and a screenshot of the structured
+property in the DataHub UI.
 
-## Qué son estos archivos
+## What these files are
 
-`diagnosis_output.json`, `impact_output.json`, `explain_output.txt` y
-`memory_reuse_output.json` son outputs reales de `main.py` corridos contra
-una instancia real de DataHub (`datahub docker quickstart`), sobre el grafo
-sembrado por `scripts/seed_demo_data.py` (A→B→C, anomalía en B) y una
-segunda entidad con la misma firma de patrón (H→G→F, sembrada reutilizando
-`_seed_second_matching_entity` de `scripts/generate_example_outputs.py`
-contra el cliente real en vez del `FakeDataHub`).
+**Current state (2026-08-08, post-translation pass):** the files in this
+folder right now were regenerated via `scripts/generate_example_outputs.py`
+against `FakeDataHub`, not a live instance — the real DataHub quickstart
+that ran for most of this session (11+ hours up) started timing out
+intermittently while re-validating everything after translating the
+codebase to English. The individual commands (`doctor`, `diagnose
+--write --explain`, `impact`, `check-change`) were all re-confirmed
+working end to end against the real instance during that same pass (see
+`README.md` "Technical notes" and the session history) — only the
+specific H->G->F memory-reuse seeding hit a transient GMS timeout at that
+moment. **Before the final submission/video, regenerate these against a
+freshly started real instance** using the exact commands below, replacing
+these `FakeDataHub` outputs.
 
-Comandos exactos usados:
+Earlier in the project, these same files WERE generated against a real
+DataHub instance (`datahub docker quickstart`), on the graph seeded by
+`scripts/seed_demo_data.py` (A->B->C, anomaly in B) and a second entity
+with the same pattern signature (H->G->F, seeded by reusing
+`_seed_second_matching_entity` from `scripts/generate_example_outputs.py`
+against the real client instead of `FakeDataHub`) — that's still the
+target process to reproduce.
+
+Exact commands used:
 
 ```bash
 datahub docker quickstart
@@ -22,33 +36,34 @@ python3 main.py doctor
 python3 scripts/seed_demo_data.py
 python3 main.py diagnose "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)" --write --explain
 python3 main.py impact "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.sales_report,PROD)"
-# + segunda entidad (H→G→F) para el reuso de memoria, luego:
+# + a second entity (H->G->F) for memory reuse, then:
 python3 main.py diagnose "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.finance_report,PROD)"
 ```
 
-Validar esto contra una instancia real (en vez de solo el `FakeDataHub` de
-`generate_example_outputs.py`) encontró un bug real: `_seed_second_matching_entity`
-intentaba emitir el aspecto `globalTags` sobre una entidad `tag` (inválido —
-DataHub lo rechazó con 422; el `FakeDataHub` no valida compatibilidad
-aspecto/entidad, así que nunca lo hubiera atrapado). Ya está corregido en
-`scripts/generate_example_outputs.py` (usa `TagPropertiesClass`, como hace
-correctamente `seed_demo_data.py`).
+Validating this against a real instance (instead of just
+`generate_example_outputs.py`'s `FakeDataHub`) found a real bug:
+`_seed_second_matching_entity` was trying to emit the `globalTags` aspect
+on a `tag` entity (invalid — DataHub rejected it with 422; `FakeDataHub`
+doesn't validate aspect/entity compatibility, so it would never have
+caught this). Already fixed in `scripts/generate_example_outputs.py`
+(uses `TagPropertiesClass`, the way `seed_demo_data.py` already did it
+correctly).
 
-## Qué falta agregar acá
+## What's still missing here
 
-1. **`structured_property_screenshot.png`** — captura de la UI de DataHub
-   mostrando las structured properties `majestic.*` ya escritas sobre la
-   entidad (Settings → Structured Properties, o la pestaña de properties
-   del dataset). Esto ningún script lo puede generar — es la única pieza
-   que requiere una captura manual.
+1. **`structured_property_screenshot.png`** — a screenshot of the DataHub
+   UI showing the `majestic.*` structured properties already written on
+   the entity (Settings -> Structured Properties, or the dataset's
+   properties tab). No script can generate this — it's the only piece
+   that needs a manual capture.
 
-## Cómo regenerar
+## How to regenerate
 
-Contra una instancia real ya levantada, repetir los comandos de arriba y
-reemplazar los `.json`/`.txt` de esta carpeta con esos outputs.
+Against an already-running real instance, repeat the commands above and
+replace this folder's `.json`/`.txt` files with those outputs.
 
-Si no hay una instancia real disponible, `scripts/generate_example_outputs.py`
-regenera una versión equivalente corriendo el mismo código de producción
-contra un grafo falso en memoria (`FakeDataHub`) — útil para mantener los
-archivos sincronizados con el código mientras tanto, pero no sustituye
-correr esto contra DataHub de verdad antes de grabar el video.
+If a real instance isn't available, `scripts/generate_example_outputs.py`
+regenerates an equivalent version by running the same production code
+against a fake in-memory graph (`FakeDataHub`) — useful for keeping the
+files in sync with the code in the meantime, but it doesn't replace
+running this against real DataHub before recording the video.

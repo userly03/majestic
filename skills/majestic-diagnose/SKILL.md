@@ -78,10 +78,10 @@ python3 main.py diagnose "<urn>" --explain
   Stops as soon as a hop has no evidence — the chain is never padded.
 - `--explain` adds a natural-language paragraph on top of the same
   evidence (deterministic template today, not an LLM call — see the
-  main README's "Notas técnicas" if asked whether this uses an LLM).
+  main README's "Technical notes" if asked whether this uses an LLM).
 - If DataHub already has a diagnosis for the same structural pattern
   (`pattern_signature` in the output) on a different entity, it prints
-  a `♻️ Ya existe un diagnóstico...` block automatically — no separate
+  a "Diagnosis already exists..." block automatically — no separate
   command needed, this is always checked.
 - Add `--write` to persist the diagnosis back to DataHub as structured
   properties (`majestic.*`) on the entity, and optionally

@@ -1,116 +1,116 @@
-# Mecanismo "lag-aware" de Majestic — plan de implementación
+# Majestic's "lag-aware" mechanism — implementation plan
 
-> **Aviso de origen, primero que nada, sin letra chica:** esta idea NO está
-> basada en un paper académico verificado. Surgió de una cita alucinada
-> ("LagRCA", supuesto Distinguished Paper Award de FSE 2026) que se
-> verificó contra la fuente primaria (el programa oficial de la
-> conferencia) y no existe ahí. La *idea técnica* subyacente, sin embargo,
-> es buena y resuelve un problema real de `RootCauseDiagnoser` — así que
-> se implementa como diseño original de Majestic, con el apodo interno
-> "LagRCA" únicamente como broma/homenaje a su origen, **nunca como cita
-> de investigación real**. No debe aparecer en `proyecto-majestic.md` ni
-> en el video como "basado en el paper LagRCA" — eso sería falso. Sí puede
-> mencionarse como "un mecanismo propio, inspirado en cómo la
-> investigación real de RCA en microservicios (MicroRCA, TraceDiag,
-> DynaCausal — esos sí verificados, ver `docs/PROPOSAL.md`) trata el
-> tiempo y la herencia de síntomas".
+> **Origin disclosure, first and plainly stated:** this idea is NOT based on a
+> verified academic paper. It came from a hallucinated citation
+> ("LagRCA", a supposed FSE 2026 Distinguished Paper Award) that was
+> checked against the primary source (the official conference program)
+> and doesn't exist there. The underlying *technical idea*, however,
+> is sound and solves a real problem in `RootCauseDiagnoser` — so it's
+> implemented as an original Majestic design, with the internal nickname
+> "LagRCA" used only as an in-joke/nod to its origin, **never as a
+> citation of real research**. It must not appear in `PITCH.md` or
+> in the video as "based on the LagRCA paper" — that would be false. It
+> can be described as "a mechanism of our own, inspired by how real
+> microservice RCA research (MicroRCA, TraceDiag, DynaCausal — those
+> ones verified against primary sources) treats time and symptom
+> inheritance."
 
-## Qué problema real resuelve (en términos de Majestic, no del paper fantasma)
+## What real problem this solves (in Majestic's own terms, not the phantom paper's)
 
-1. **Los pesos de evidencia son estáticos.** `_EVIDENCE_WEIGHTS` no distingue
-   "esto pasó hace 10 minutos" de "esto pasó hace 3 semanas". Una anomalía
-   reciente es más probable causa activa que una vieja.
-2. **No hay distinción entre evidencia independiente y heredada.** Si un
-   nodo downstream muestra síntomas porque su upstream ya estaba roto,
-   tratarlo como señal independiente infla la cadena causal.
-3. **Una sola respuesta esconde la ambigüedad** cuando hay 2+ candidatos
-   con evidencia comparable — `root_cause_urn` es siempre un solo URN, aunque
-   el segundo candidato esté casi empatado.
+1. **Evidence weights are static.** `_EVIDENCE_WEIGHTS` doesn't distinguish
+   "this happened 10 minutes ago" from "this happened 3 weeks ago." A
+   recent anomaly is more likely to be the active cause than an old one.
+2. **No distinction between independent and inherited evidence.** If a
+   downstream node shows symptoms because its upstream was already broken,
+   treating it as an independent signal inflates the causal chain.
+3. **A single answer hides ambiguity** when there are 2+ candidates
+   with comparable evidence — `root_cause_urn` is always a single URN, even
+   when the runner-up is nearly tied.
 
-## Los 3 mecanismos a construir
+## The 3 mechanisms to build
 
-### Mecanismo 1 — Decaimiento por antigüedad (recency decay)
-Para los tipos de evidencia que YA calculan `age_hours` (`schema_change`,
-`stale_data`), aplicar un factor de decaimiento exponencial al peso:
+### Mechanism 1 — Recency decay
+For evidence types that already compute `age_hours` (`schema_change`,
+`stale_data`), apply an exponential decay factor to the weight:
 
 ```
 adjusted_weight = base_weight * decay(age_hours)
 decay(age_hours) = 0.5 ** (age_hours / LAG_DECAY_HALFLIFE_HOURS)
 ```
 
-Nunca cae a cero — evidencia vieja pesa menos, no se descarta. Para
-`incident_tag` y `unowned` (sin timestamp confiable vía los aspectos
-estándar que ya leemos), el peso queda fijo como hoy — no se fabrica un
-timestamp que no existe.
+Never drops to zero — old evidence weighs less, it isn't discarded. For
+`incident_tag` and `unowned` (no reliable timestamp available via the
+standard aspects we already read), the weight stays fixed as today — no
+fabricated timestamp.
 
-### Mecanismo 2 — Descuento por herencia upstream
-Si el mismo `evidence_type` aparece en dos hops consecutivos de la cadena,
-el hop más cercano al target (downstream) se descuenta con
-`UPSTREAM_INHERITANCE_DISCOUNT` — es más probable que esté heredando el
-problema del hop más lejano que aportando una señal independiente.
+### Mechanism 2 — Upstream inheritance discount
+If the same `evidence_type` appears at two consecutive hops of the chain,
+the hop closer to the target (downstream) is discounted by
+`UPSTREAM_INHERITANCE_DISCOUNT` — it's more likely inheriting the problem
+from the farther hop than contributing an independent signal.
 
-### Mecanismo 3 — Top-K candidatos rankeados
-`analyze()` agrega un campo nuevo `ranked_candidates` (hasta
-`RANKED_CANDIDATES_TOP_K` candidatos, cada uno con `urn`/`hop`/
-`evidence_type`/`adjusted_weight`), ordenado descendente. Los campos
-existentes (`root_cause_urn`, `reason`, `confidence`, `causal_chain`)
-se siguen calculando igual que hoy pero usando los pesos ajustados —
-**cambio aditivo**, nada que ya consume el report se rompe.
+### Mechanism 3 — Ranked top-K candidates
+`analyze()` adds a new `ranked_candidates` field (up to
+`RANKED_CANDIDATES_TOP_K` candidates, each with `urn`/`hop`/
+`evidence_type`/`adjusted_weight`), sorted descending. Existing fields
+(`root_cause_urn`, `reason`, `confidence`, `causal_chain`) are still
+computed the same way as today but using the adjusted weights —
+**an additive change**, nothing already consuming the report breaks.
 
-## Checklist de implementación
+## Implementation checklist
 
-- [x] `config/settings.py` — agregar `LAG_DECAY_HALFLIFE_HOURS` (default
+- [x] `config/settings.py` — add `LAG_DECAY_HALFLIFE_HOURS` (default
       48), `UPSTREAM_INHERITANCE_DISCOUNT` (default 0.5),
-      `RANKED_CANDIDATES_TOP_K` (default 3). Todos configurables por env var,
-      mismo patrón que el resto del archivo.
+      `RANKED_CANDIDATES_TOP_K` (default 3). All configurable via env var,
+      same pattern as the rest of the file.
 - [x] `src/core/diagnoser.py`:
   - [x] `_recency_decay(age_hours) -> float`
-  - [x] Aplicar el decaimiento donde se calcula `age_hours` (schema_change,
-        stale_data) al construir el diccionario de evidencia.
+  - [x] Apply the decay wherever `age_hours` is computed (schema_change,
+        stale_data) when building the evidence dict.
   - [x] `_apply_upstream_inheritance_discount(causal_chain) -> causal_chain`
-  - [x] `analyze()`: usar la cadena ya ajustada para elegir `root_cause_urn`
-        (sigue siendo `max(..., key=hop,weight)`, pero sobre pesos ajustados)
-        y agregar `ranked_candidates` al dict de retorno.
-- [x] `tests/test_diagnoser.py` — casos nuevos:
-  - [x] decaimiento reduce el peso de evidencia vieja sin llegar a 0
-  - [x] evidencia reciente (age_hours≈0) casi no se descuenta
-  - [x] descuento de herencia baja el score del hop downstream cuando el
-        tipo coincide con el del hop upstream
-  - [x] `incident_tag`/`unowned` no se ven afectados por el decaimiento
-        (sin timestamp fabricado)
-  - [x] `ranked_candidates` ordenado correctamente, tope en `RANKED_CANDIDATES_TOP_K`
-- [x] Correr los 61 tests existentes — revisar si alguno asumía un peso
-      fijo exacto que ahora cambia por el decaimiento (es esperable que
-      algún test necesite ajustar un valor, no la lógica).
-- [x] Probar en vivo contra el DataHub real que sigue corriendo: re-diagnosticar
-      `sales_report`, confirmar que `marketing_etl` sigue apareciendo como
-      causa raíz con el mecanismo nuevo.
-- [x] `main.py cmd_diagnose` — imprimir `ranked_candidates` cuando haya
-      más de un candidato (opcional, solo si `len(ranked_candidates) > 1`).
-- [x] Documentar en `README.md` (sección "Notas técnicas") como mecanismo
-      propio de Majestic, con el aviso de origen de arriba.
+  - [x] `analyze()`: use the already-adjusted chain to pick `root_cause_urn`
+        (still `max(..., key=hop,weight)`, but over adjusted weights)
+        and add `ranked_candidates` to the returned dict.
+- [x] `tests/test_diagnoser.py` — new cases:
+  - [x] decay reduces the weight of old evidence without reaching 0
+  - [x] recent evidence (age_hours ~ 0) is barely discounted
+  - [x] inheritance discount lowers the downstream hop's score when its
+        type matches the upstream hop's
+  - [x] `incident_tag`/`unowned` are unaffected by decay
+        (no fabricated timestamp)
+  - [x] `ranked_candidates` correctly ordered, capped at `RANKED_CANDIDATES_TOP_K`
+- [x] Run the 61 existing tests — check whether any assumed an exact
+      fixed weight that now changes due to decay (expected that some
+      test needs a value adjusted, not the logic).
+- [x] Test live against the real DataHub still running: re-diagnose
+      `sales_report`, confirm `marketing_etl` still shows up as the root
+      cause with the new mechanism.
+- [x] `main.py cmd_diagnose` — print `ranked_candidates` when there's
+      more than one candidate (optional, only if `len(ranked_candidates) > 1`).
+- [x] Document in `README.md` ("Technical notes" section) as a mechanism
+      of Majestic's own, with the origin disclosure above.
 
-## Criterio de éxito
+## Success criterion
 
-`diagnose` sobre el grafo sembrado hoy sigue encontrando `marketing_etl`
-como causa raíz de `sales_report` (no debería cambiar el resultado en un
-caso tan simple de 1 solo hop de evidencia) — la diferencia se nota en
-grafos con evidencia en múltiples hops o de distinta antigüedad, que hoy
-no tenemos sembrados. Puede valer la pena sembrar un tercer escenario de
-demo con evidencia vieja + nueva para que el mecanismo se vea en el video.
+Running `diagnose` on today's seeded graph should still find `marketing_etl`
+as the root cause of `sales_report` (the result shouldn't change in such a
+simple, single-hop-of-evidence case) — the difference shows up in graphs
+with evidence at multiple hops or of different ages, which we don't have
+seeded today. It may be worth seeding a third demo scenario with old +
+new evidence so the mechanism is visible in the video.
 
-## Escenario 3 probado en vivo (2026-08-08)
+## Scenario 3 tested live (2026-08-08)
 
-`scripts/seed_lag_aware_demo.py` siembra `inventory_recent` (~30h obsoleto)
-e `inventory_legacy` (~800h obsoleto) como fan-in directo a
-`logistics_report`, mismo hop y mismo `evidence_type` (`stale_data`), mismo
-peso base (0.5). Corrido contra el DataHub real:
+`scripts/seed_lag_aware_demo.py` seeds `inventory_recent` (~30h stale)
+and `inventory_legacy` (~800h stale) as a direct fan-in into
+`logistics_report`, same hop and same `evidence_type` (`stale_data`), same
+base weight (0.5). Run against real DataHub:
 
-- `inventory_recent` → `adjusted_weight` 0.3241, rankea #1 (root cause).
-- `inventory_legacy` → `adjusted_weight` ≈0.0 (decae pero no llega a cero
-  matemáticamente, solo se redondea a 0.0000 en la salida), rankea #2.
-- `ranked_candidates` y el print de `main.py cmd_diagnose` muestran ambos
-  candidatos correctamente ordenados.
+- `inventory_recent` -> `adjusted_weight` 0.3241, ranks #1 (root cause).
+- `inventory_legacy` -> `adjusted_weight` ~0.0 (decays but never
+  mathematically reaches zero, just rounds to 0.0000 in the output), ranks #2.
+- `ranked_candidates` and `main.py cmd_diagnose`'s print both show both
+  candidates correctly ordered.
 
-Confirma el criterio de éxito. Los 67 tests (4 skipped, integración) siguen
-en verde.
+Confirms the success criterion. All 67 tests (4 skipped, integration) were
+still green at the time.

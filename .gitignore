@@ -12,3 +12,8 @@ htmlcov/
 dist/
 build/
 .claude/
+
+# Internal working docs — useful locally, not meant for the public repo
+# (rehearsal script, internal engineering log). Kept on disk, never pushed.
+docs/DEMO_SCRIPT.md
+docs/PROPOSAL.md

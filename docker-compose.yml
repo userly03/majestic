@@ -1,15 +1,15 @@
-# Un solo comando para correr Majestic en contenedor, apuntando a un
-# DataHub ya levantado con `datahub docker quickstart` (este compose NO
-# reimplementa el stack de DataHub — GMS, Elasticsearch, Kafka, MySQL —
-# eso ya lo maneja la CLI de datahub, y duplicarlo acá sería frágil y se
-# desincroniza con cada versión nueva de DataHub).
+# A single command to run Majestic in a container, pointing at a DataHub
+# instance already started with `datahub docker quickstart` (this compose
+# file does NOT reimplement DataHub's stack — GMS, Elasticsearch, Kafka,
+# MySQL — the datahub CLI already handles that, and duplicating it here
+# would be fragile and drift out of sync with every new DataHub version).
 #
-# Prerrequisitos:
-#   1. datahub docker quickstart          (deja GMS escuchando en :8080)
-#   2. cp .env.example .env               (y editarlo si hace falta)
+# Prerequisites:
+#   1. datahub docker quickstart          (leaves GMS listening on :8080)
+#   2. cp .env.example .env               (and edit it if needed)
 #
-# Uso:
-#   docker compose up                                    # corre scripts/spike_test.py (valida conexión)
+# Usage:
+#   docker compose up                                    # runs scripts/spike_test.py (validates connection)
 #   docker compose run --rm majestic python main.py doctor
 #   docker compose run --rm majestic python main.py diagnose "<urn>" --explain
 #   docker compose run --rm majestic python scripts/seed_demo_data.py
@@ -19,7 +19,7 @@ services:
     build: .
     env_file:
       - .env
-    # network_mode: host es la forma más simple de llegar al GMS de
-    # `datahub docker quickstart` en localhost:8080 sin tener que
-    # averiguar el nombre de la red Docker interna que arma esa CLI.
+    # network_mode: host is the simplest way to reach the GMS from
+    # `datahub docker quickstart` on localhost:8080 without having to
+    # figure out the internal Docker network name that CLI sets up.
     network_mode: host
