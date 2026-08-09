@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="470" viewBox="0 0 1120 470" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, 'Courier New', monospace">
+  <rect x="0" y="0" width="1120" height="470" rx="10" fill="#0d1117"/>
+  <rect x="0" y="0" width="1120" height="40" rx="10" fill="#161b22"/>
+  <rect x="0" y="30" width="1120" height="10" fill="#161b22"/>
+  <circle cx="24" cy="20" r="6" fill="#ff5f56"/>
+  <circle cx="46" cy="20" r="6" fill="#ffbd2e"/>
+  <circle cx="68" cy="20" r="6" fill="#27c93f"/>
+  <text x="560" y="25" text-anchor="middle" font-size="13" fill="#8b949e">majestic — verified live against real DataHub</text>
+
+  <text x="32" y="72" font-size="14.5" fill="#c9d1d9" xml:space="preserve"><tspan fill="#7ee787">$ </tspan><tspan fill="#79c0ff">python3 main.py diagnose </tspan><tspan>"urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.logistics_report,PROD)"</tspan></text>
+
+  <text x="32" y="108" font-size="13.5" fill="#c9d1d9">Diagnosis:</text>
+
+  <text x="32" y="132" font-size="13.5" fill="#c9d1d9" xml:space="preserve">
+    <tspan x="32" dy="1.2em">{</tspan>
+    <tspan x="32" dy="1.5em">  "target_urn": "...majestic_demo.logistics_report,PROD)",</tspan>
+    <tspan x="32" dy="1.5em">  "upstream_count": 2,</tspan>
+    <tspan x="32" dy="1.5em">  "downstream_count": 1,</tspan>
+    <tspan x="32" dy="1.5em">  "root_cause_urn": "urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.inventory_recent,PROD)",</tspan>
+    <tspan x="32" dy="1.5em">  "confidence": <tspan fill="#79c0ff">0.26</tspan>,</tspan>
+    <tspan x="32" dy="1.5em">  ...</tspan>
+    <tspan x="32" dy="1.5em">}</tspan>
+  </text>
+
+  <text x="32" y="326" font-size="13.5" fill="#d29922">2 root-cause candidates, ranked (lag-aware mechanism):</text>
+  <text x="32" y="356" font-size="13.5" fill="#3fb950" font-weight="600">   1. urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.inventory_recent,PROD) (hop 1, stale_data, score 0.32)</text>
+  <text x="70" y="376" font-size="12" fill="#3fb950">^ root cause — stale for ~31h, just crossed the threshold</text>
+  <text x="32" y="404" font-size="13.5" fill="#8b949e">   2. urn:li:dataset:(urn:li:dataPlatform:hive,majestic_demo.inventory_legacy,PROD) (hop 1, stale_data, score 0.00)</text>
+  <text x="70" y="424" font-size="12" fill="#8b949e">^ same evidence type, same base weight — stale for ~800h, decayed to near zero</text>
+
+  <line x1="32" y1="440" x2="1088" y2="440" stroke="#30363d" stroke-width="1"/>
+  <text x="32" y="460" font-size="12" fill="#6e7681">$ pytest -q  -&gt;  79 passed, 4 skipped</text>
+</svg>

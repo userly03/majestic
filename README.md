@@ -4,6 +4,8 @@
 
 > Built for *Build with DataHub: The Agent Hackathon*. See [`docs/PITCH.md`](docs/PITCH.md) for the full pitch (problem, honest comparison with DataHub, what we didn't build and why).
 
+![Majestic diagnosing a fan-in staleness conflict, ranked by recency — real output from a live run against DataHub](docs/assets/diagnose-demo.svg)
+
 ## The problem
 
 An alert fires: a dashboard is empty, a report looks wrong. The alert tells you *what* broke, never *why*. Today, finding the actual cause means manually jumping between the lineage graph, the ETL scheduler, and Slack — hoping someone remembers what changed three hops upstream.
