@@ -22,3 +22,6 @@ docs/PROPOSAL.md
 # this repo doesn't have the `workflow` scope, and GitHub rejects any push
 # that adds/modifies files under .github/workflows/ without it.
 .github/workflows/ci.yml
+
+# Personal planning notes for the submission deadline — local only.
+NEXT_STEPS.md
