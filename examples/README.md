@@ -51,6 +51,8 @@ correctly).
 
 ## Structured property screenshot
 
+![DataHub UI showing the majestic.* structured properties written on majestic_demo.sales_report: confidence score, diagnosed-at timestamp, diagnosis text, and pattern signature](structured_property_screenshot.png)
+
 `structured_property_screenshot.png` — captured 2026-08-09 against a live
 instance, right after `diagnose --write` ran on
 `majestic_demo.sales_report`. Shows the dataset's Properties tab with all
