@@ -49,13 +49,15 @@ caught this). Already fixed in `scripts/generate_example_outputs.py`
 (uses `TagPropertiesClass`, the way `seed_demo_data.py` already did it
 correctly).
 
-## What's still missing here
+## Structured property screenshot
 
-1. **`structured_property_screenshot.png`** — a screenshot of the DataHub
-   UI showing the `majestic.*` structured properties already written on
-   the entity (Settings -> Structured Properties, or the dataset's
-   properties tab). No script can generate this — it's the only piece
-   that needs a manual capture.
+`structured_property_screenshot.png` — captured 2026-08-09 against a live
+instance, right after `diagnose --write` ran on
+`majestic_demo.sales_report`. Shows the dataset's Properties tab with all
+4 `majestic.*` structured properties: confidence score (0.9), the
+diagnosed-at timestamp, the full diagnosis text (the causal chain reason),
+and the pattern signature. This was the only piece no script could
+generate — needed a manual capture.
 
 ## How to regenerate
 

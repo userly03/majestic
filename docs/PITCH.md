@@ -118,5 +118,5 @@ Apache 2.0 — see `LICENSE`. (Hackathon requirement: must be visible in the rep
 - [x] Project description — this document + `README.md`
 - [ ] Demo video <3 min, public YouTube/Vimeo — script ready and rehearsed (internal notes), still needs recording
 - [x] `examples/` with real outputs — regenerated on 2026-08-08 by running the full pipeline against a real DataHub instance (not `FakeDataHub`). See `examples/README.md` for the detail and the exact commands used.
-- [ ] `examples/structured_property_screenshot.png` — manual screenshot of the DataHub UI (the one piece no script can generate)
+- [x] `examples/structured_property_screenshot.png` — manual screenshot of the DataHub UI (the one piece no script can generate)
 - [ ] Optional: opt in to the Bonus Prize survey ($50 x 10)
