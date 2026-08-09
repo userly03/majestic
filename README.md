@@ -25,6 +25,10 @@ Two upstream datasets, same evidence type (`stale_data`), same base weight (0.5)
 
 Same signal, same base weight — the only thing that told them apart is *when* each one happened. That's the difference between "something's wrong somewhere" and an actual answer.
 
+The diagnosis doesn't just get printed and forgotten, either: `diagnose --write` persists it back to DataHub as `structuredProperties` on the entity itself — auditable metadata, visible in the UI like any other field:
+
+![DataHub UI showing the majestic.* structured properties written on a diagnosed dataset: confidence score, diagnosed-at timestamp, the causal-chain reason as text, and the pattern signature](examples/structured_property_screenshot.png)
+
 ## Requirements
 
 - Docker and Docker Compose installed (to run DataHub locally).
