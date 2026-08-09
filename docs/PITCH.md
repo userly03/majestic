@@ -49,8 +49,8 @@ We're not saying "we're first in AI governance" — DataHub Cloud already does t
 A deliberate decision, not a lack of time:
 
 - **Slack bot** — only considered once the core works with comfortable margin. Adds external integration surface (OAuth, webhooks) before validating the essentials.
-- **Natural language -> business glossary translator** — depends on the datapack having a populated Business Glossary, which wasn't confirmed. We don't build on top of an unverified assumption.
-- **Future-failure prediction ("80% probability in 48h")** — the sample datapacks are a static load, not a real time series. Without real historical data, that figure would be invented, not measured.
+- **Natural language -> business glossary translator** — depends on the sample datapack (the demo data `datahub docker quickstart` preloads) having a populated Business Glossary, which wasn't confirmed. We don't build on top of an unverified assumption.
+- **Future-failure prediction ("80% probability in 48h")** — the sample datapack is a static load, not a real time series. Without real historical data, that figure would be invented, not measured.
 - **Time-travel debugging with versioned aspects** — depends on DataHub capabilities not confirmed in this session, and is essentially a second project.
 - **Chaos engineering / active fault injection** — implies modifying the data environment under test; real risk of breaking the demo itself before recording the video.
 
