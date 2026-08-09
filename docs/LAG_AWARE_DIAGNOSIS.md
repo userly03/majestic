@@ -98,3 +98,19 @@ caso tan simple de 1 solo hop de evidencia) — la diferencia se nota en
 grafos con evidencia en múltiples hops o de distinta antigüedad, que hoy
 no tenemos sembrados. Puede valer la pena sembrar un tercer escenario de
 demo con evidencia vieja + nueva para que el mecanismo se vea en el video.
+
+## Escenario 3 probado en vivo (2026-08-08)
+
+`scripts/seed_lag_aware_demo.py` siembra `inventory_recent` (~30h obsoleto)
+e `inventory_legacy` (~800h obsoleto) como fan-in directo a
+`logistics_report`, mismo hop y mismo `evidence_type` (`stale_data`), mismo
+peso base (0.5). Corrido contra el DataHub real:
+
+- `inventory_recent` → `adjusted_weight` 0.3241, rankea #1 (root cause).
+- `inventory_legacy` → `adjusted_weight` ≈0.0 (decae pero no llega a cero
+  matemáticamente, solo se redondea a 0.0000 en la salida), rankea #2.
+- `ranked_candidates` y el print de `main.py cmd_diagnose` muestran ambos
+  candidatos correctamente ordenados.
+
+Confirma el criterio de éxito. Los 67 tests (4 skipped, integración) siguen
+en verde.
