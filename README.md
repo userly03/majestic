@@ -4,9 +4,24 @@
 
 > Built for *Build with DataHub: The Agent Hackathon*. See [`docs/PITCH.md`](docs/PITCH.md) for the full pitch (problem, honest comparison with DataHub, what we didn't build and why).
 
-## Overview
+## The problem
 
-Majestic is an agent that reads DataHub's lineage graph, cross-references signals of different kinds (freshness, schema changes, ownership) into a single causal chain, and writes that diagnosis back to the graph as auditable metadata. The next time it sees the same structural pattern on another entity, it reuses the diagnosis instead of reasoning from scratch. It also simulates the downstream impact of a change before it's executed, reusing the same traversal in the opposite direction.
+An alert fires: a dashboard is empty, a report looks wrong. The alert tells you *what* broke, never *why*. Today, finding the actual cause means manually jumping between the lineage graph, the ETL scheduler, and Slack — hoping someone remembers what changed three hops upstream.
+
+## The solution
+
+Majestic reads DataHub's lineage graph, walks it backward from the broken entity, and cross-references real evidence at each hop — incident tags, missing owners, stale data, recent schema changes — into a single causal chain. No LLM speculation: every link is backed by a fact read from the graph, or the chain stops there. It writes the diagnosis back to DataHub as auditable metadata, and the next time it sees the same structural pattern elsewhere, it reuses it instead of reasoning from scratch. It also simulates the downstream impact of a change before it's executed, reusing the same traversal in the opposite direction.
+
+## Proof, not a promise
+
+Two upstream datasets, same evidence type (`stale_data`), same base weight (0.5), same hop — exactly the kind of tie that leaves a naive system guessing. Majestic's "lag-aware" mechanism (exponential decay by recency, see "Technical notes" below) breaks it correctly — verified live against a real DataHub instance, not a mock:
+
+| Dataset | Stale for | Adjusted weight | Rank |
+|---|---|---|---|
+| `inventory_recent` | ~31h (just crossed the staleness threshold) | **0.32** | #1 — root cause |
+| `inventory_legacy` | ~800h (chronically stale, low priority) | **0.00** | #2 |
+
+Same signal, same base weight — the only thing that told them apart is *when* each one happened. That's the difference between "something's wrong somewhere" and an actual answer.
 
 ## Requirements
 
