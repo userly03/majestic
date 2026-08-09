@@ -4,7 +4,6 @@
 > **Not filed yet** — filing it is an action visible on a third party's
 > public repository, so it's left to whoever files it (needs their own
 > GitHub account / `gh auth login`, not available in this environment).
-> See `AUDIT_REPORT.md`, Section 3, Idea 1.
 
 ## Suggested title
 

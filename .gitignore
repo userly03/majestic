@@ -17,6 +17,8 @@ build/
 # (rehearsal script, internal engineering log). Kept on disk, never pushed.
 docs/DEMO_SCRIPT.md
 docs/PROPOSAL.md
+docs/AUDIT_REPORT.md
+docs/LAG_AWARE_DIAGNOSIS.md
 
 # GitHub Actions workflow — kept locally, not pushed. The PAT used to push
 # this repo doesn't have the `workflow` scope, and GitHub rejects any push
